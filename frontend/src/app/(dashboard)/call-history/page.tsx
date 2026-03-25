@@ -1,6 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
+import { SkeletonToContent } from '@/components/animations'
+import { CallHistorySkeleton } from '@/components/ui/page-skeletons'
+import { usePageLoading } from '@/hooks/use-page-loading'
+import { useCallHistory, useCallRecord } from '@/hooks/use-call-history'
+import { LoadingState } from '@/components/ui/loading-state'
+import { ErrorState } from '@/components/ui/error-state'
+import { EmptyState } from '@/components/ui/empty-state'
+import type { Call } from '@/lib/api-types'
 import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, Play, Pause,
   ChevronRight, Search, Filter, Star, Download, TrendingUp, TrendingDown, Minus,
@@ -9,6 +17,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,88 +33,64 @@ interface CallRecord {
   callerPhone: string
   direction: 'inbound' | 'outbound' | 'missed'
   agent: string
+  agentId: string
   duration: number // seconds
   date: string
   time: string
   outcome: 'converted' | 'follow-up' | 'no-action' | 'transferred' | 'voicemail'
   aiScore: number // 0-100
   sentiment: 'positive' | 'neutral' | 'negative'
-  transcript?: string
-  summary?: string
-  sentimentTimeline: { time: number; value: number }[] // -1 to 1
+  status: string
 }
 
-// ── Mock data ────────────────────────────────────────────────────────────────
+// ── API mapper ──────────────────────────────────────────────────────────────
 
-function generateSentimentTimeline(): { time: number; value: number }[] {
-  const points: { time: number; value: number }[] = []
-  let v = 0
-  for (let t = 0; t <= 100; t += 5) {
-    v = Math.max(-1, Math.min(1, v + (Math.random() - 0.48) * 0.4))
-    points.push({ time: t, value: v })
+function mapCallStatus(
+  status: Call['status'],
+  direction: Call['direction'],
+  duration: number | null,
+): { direction: CallRecord['direction']; outcome: CallRecord['outcome'] } {
+  if (status === 'no-answer' || status === 'busy' || status === 'canceled') {
+    return { direction: 'missed', outcome: 'voicemail' }
   }
-  return points
+  if (status === 'failed') {
+    return { direction: 'missed', outcome: 'no-action' }
+  }
+
+  const dir = direction === 'inbound' ? 'inbound' : 'outbound'
+
+  if (duration && duration > 180) return { direction: dir, outcome: 'converted' }
+  if (duration && duration > 60) return { direction: dir, outcome: 'follow-up' }
+  if (!duration || duration === 0) return { direction: 'missed', outcome: 'voicemail' }
+  return { direction: dir, outcome: 'no-action' }
 }
 
-const CALL_RECORDS: CallRecord[] = [
-  {
-    id: 'h1', callerName: 'James Wilson', callerPhone: '(555) 123-4567',
-    direction: 'inbound', agent: 'Sarah AI', duration: 312, date: 'Mar 25, 2026', time: '2:45 PM',
-    outcome: 'converted', aiScore: 92, sentiment: 'positive',
-    summary: 'Customer inquired about auto insurance bundle. Quoted $2,100/yr. Customer accepted and began binding process. High intent, smooth conversation.',
-    transcript: 'Agent: Hi, I\'m Sarah! How can I help you with your insurance today?\nCaller: Hi Sarah, I\'m looking to bundle my auto and home insurance...\nAgent: Great choice! Bundling can save you up to 15%. Let me pull up some options...',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h2', callerName: 'Maria Garcia', callerPhone: '(555) 234-5678',
-    direction: 'outbound', agent: 'Mike AI', duration: 187, date: 'Mar 25, 2026', time: '1:30 PM',
-    outcome: 'follow-up', aiScore: 78, sentiment: 'neutral',
-    summary: 'Follow-up call for claims status. Customer\'s claim is in review. Scheduled callback for next week. Customer satisfied with update.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h3', callerName: 'Robert Chen', callerPhone: '(555) 345-6789',
-    direction: 'missed', agent: 'Alex AI', duration: 0, date: 'Mar 25, 2026', time: '12:15 PM',
-    outcome: 'voicemail', aiScore: 0, sentiment: 'neutral',
-    summary: 'Missed inbound call. Voicemail left requesting callback about cyber liability coverage.',
-    sentimentTimeline: [],
-  },
-  {
-    id: 'h4', callerName: 'Emily Brown', callerPhone: '(555) 456-7890',
-    direction: 'inbound', agent: 'Sarah AI', duration: 523, date: 'Mar 25, 2026', time: '11:00 AM',
-    outcome: 'transferred', aiScore: 65, sentiment: 'negative',
-    summary: 'Customer called about policy cancellation. Frustrated with premium increase. Escalated to human agent for retention.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h5', callerName: 'David Kim', callerPhone: '(555) 567-8901',
-    direction: 'outbound', agent: 'Jordan AI', duration: 245, date: 'Mar 25, 2026', time: '10:30 AM',
-    outcome: 'converted', aiScore: 88, sentiment: 'positive',
-    summary: 'Outbound campaign call for renewal. Customer renewed workers\' comp policy with upgraded coverage.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h6', callerName: 'Patricia Moore', callerPhone: '(555) 678-9012',
-    direction: 'inbound', agent: 'Mike AI', duration: 156, date: 'Mar 24, 2026', time: '4:20 PM',
-    outcome: 'no-action', aiScore: 72, sentiment: 'neutral',
-    summary: 'General inquiry about coverage options. Customer browsing, no immediate intent. Added to nurture list.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h7', callerName: 'Thomas Anderson', callerPhone: '(555) 789-0123',
-    direction: 'outbound', agent: 'Sarah AI', duration: 398, date: 'Mar 24, 2026', time: '2:00 PM',
-    outcome: 'converted', aiScore: 95, sentiment: 'positive',
-    summary: 'Closed commercial package deal. Customer signed $15K annual premium. Excellent rapport building.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-  {
-    id: 'h8', callerName: 'Lisa Wang', callerPhone: '(555) 890-1234',
-    direction: 'inbound', agent: 'Alex AI', duration: 89, date: 'Mar 24, 2026', time: '11:45 AM',
-    outcome: 'follow-up', aiScore: 70, sentiment: 'neutral',
-    summary: 'Customer requested quote for auto insurance. Agent collected details. Quote will be emailed.',
-    sentimentTimeline: generateSentimentTimeline(),
-  },
-]
+function sentimentFromScore(score: number | null): CallRecord['sentiment'] {
+  if (score == null) return 'neutral'
+  if (score >= 60) return 'positive'
+  if (score <= 40) return 'negative'
+  return 'neutral'
+}
+
+function apiToUiCall(call: Call): CallRecord {
+  const dt = new Date(call.created_at)
+  const { direction, outcome } = mapCallStatus(call.status, call.direction, call.duration)
+  return {
+    id: call.id,
+    callerName: call.phone_from || call.phone_to || 'Unknown',
+    callerPhone: call.direction === 'inbound' ? (call.phone_from || '—') : (call.phone_to || '—'),
+    direction,
+    agent: call.agent_id ? `Agent ${call.agent_id.slice(0, 6)}` : '—',
+    agentId: call.agent_id,
+    duration: call.duration ?? 0,
+    date: dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    time: dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    outcome,
+    aiScore: call.sentiment_score ?? 0,
+    sentiment: sentimentFromScore(call.sentiment_score),
+    status: call.status,
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -142,42 +133,6 @@ const SENTIMENT_COLOR = {
   negative: 'text-red-400',
 }
 
-// ── Sentiment timeline chart ─────────────────────────────────────────────────
-
-function SentimentChart({ data }: { data: { time: number; value: number }[] }) {
-  if (data.length === 0) return <p className="text-xs text-slate-600 text-center py-4">No data</p>
-
-  const width = 300
-  const height = 60
-  const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * width
-    const y = height / 2 - (d.value * height) / 2
-    return `${x},${y}`
-  }).join(' ')
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16">
-      {/* Zero line */}
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.1)" strokeDasharray="4" />
-      {/* Area fill */}
-      <polygon
-        points={`0,${height / 2} ${points} ${width},${height / 2}`}
-        fill="url(#sentGradient)"
-        opacity={0.3}
-      />
-      {/* Line */}
-      <polyline points={points} fill="none" stroke="#3b82f6" strokeWidth="1.5" />
-      <defs>
-        <linearGradient id="sentGradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#22c55e" />
-          <stop offset="50%" stopColor="#3b82f6" stopOpacity="0" />
-          <stop offset="100%" stopColor="#ef4444" />
-        </linearGradient>
-      </defs>
-    </svg>
-  )
-}
-
 // ── AI Score ring ────────────────────────────────────────────────────────────
 
 function ScoreRing({ score }: { score: number }) {
@@ -199,28 +154,194 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+// ── Call Detail Panel ────────────────────────────────────────────────────────
+
+function CallDetailPanel({ callId, call }: { callId: string; call: CallRecord }) {
+  const { data: detail, isLoading, isError, refetch } = useCallRecord(callId)
+  const [isPlaying, setIsPlaying] = useState(false)
+
+  return (
+    <Card className="glass-card sticky top-4">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-lg">{call.callerName}</CardTitle>
+            <p className="text-sm text-slate-400 mt-0.5">{call.callerPhone}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={OUTCOME_BADGE[call.outcome].variant}>
+              {OUTCOME_BADGE[call.outcome].label}
+            </Badge>
+            <ScoreRing score={call.aiScore} />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Meta row */}
+        <div className="flex flex-wrap gap-4 text-xs text-slate-400">
+          <span className="flex items-center gap-1">
+            {(() => { const I = DIRECTION_ICON[call.direction]; return <I className={`h-3.5 w-3.5 ${DIRECTION_COLOR[call.direction]}`} /> })()}
+            <span className="capitalize">{call.direction}</span>
+          </span>
+          <span>{call.date} at {call.time}</span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            {formatDuration(call.duration)}
+          </span>
+          <span>Agent: {call.agent}</span>
+          <span className={`flex items-center gap-1 ${SENTIMENT_COLOR[call.sentiment]}`}>
+            {(() => { const I = SENTIMENT_ICON[call.sentiment]; return <I className="h-3.5 w-3.5" /> })()}
+            <span className="capitalize">{call.sentiment}</span>
+          </span>
+        </div>
+
+        {/* Audio player placeholder */}
+        {call.duration > 0 && (
+          <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center hover:bg-blue-500/30 transition-colors"
+              >
+                {isPlaying
+                  ? <Pause className="h-4 w-4 text-blue-400" />
+                  : <Play className="h-4 w-4 text-blue-400 ml-0.5" />
+                }
+              </button>
+              <div className="flex-1">
+                <div className="flex items-end gap-[1px] h-8 mb-1">
+                  {Array.from({ length: 60 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-full bg-blue-400/30 hover:bg-blue-400/60 transition-colors cursor-pointer"
+                      style={{ height: `${Math.max(4, Math.abs(Math.sin(i * 0.5)) * 32)}px` }}
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-600">
+                  <span>0:00</span>
+                  <span>{formatDuration(call.duration)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Summary from API */}
+        {isLoading ? (
+          <LoadingState variant="skeleton-list" count={2} />
+        ) : isError ? (
+          <ErrorState title="Failed to load call details" onRetry={() => refetch()} />
+        ) : (
+          <>
+            {detail?.summary && (
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                  <Star className="h-3 w-3 text-amber-400" />
+                  AI Summary
+                </h4>
+                <p className="text-sm text-slate-300 leading-relaxed">{detail.summary.summary}</p>
+                {detail.summary.key_points?.length > 0 && (
+                  <div className="mt-2">
+                    <h5 className="text-xs font-semibold text-slate-500 mb-1">Key Points</h5>
+                    <ul className="list-disc list-inside text-xs text-slate-400 space-y-0.5">
+                      {detail.summary.key_points.map((point, i) => (
+                        <li key={i}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {detail.summary.next_actions?.length > 0 && (
+                  <div className="mt-2">
+                    <h5 className="text-xs font-semibold text-slate-500 mb-1">Next Actions</h5>
+                    <ul className="list-disc list-inside text-xs text-slate-400 space-y-0.5">
+                      {detail.summary.next_actions.map((action, i) => (
+                        <li key={i}>{action}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Transcript */}
+            {detail?.transcript && (
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 mb-2">Transcript</h4>
+                <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400 leading-relaxed whitespace-pre-line max-h-40 overflow-y-auto">
+                  {detail.transcript.transcript}
+                </div>
+              </div>
+            )}
+
+            {!detail?.summary && !detail?.transcript && (
+              <EmptyState icon={Phone} title="No details available" description="Transcript and summary will appear once call processing is complete." />
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CallHistoryPage() {
-  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null)
+  const loading = usePageLoading(700)
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [isPlaying, setIsPlaying] = useState(false)
+  const [directionFilter, setDirectionFilter] = useState<string>('all')
+  const [limit] = useState(50)
 
-  const filteredCalls = searchQuery
-    ? CALL_RECORDS.filter(c =>
-        c.callerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.agent.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.summary?.toLowerCase().includes(searchQuery.toLowerCase())
+  const {
+    data: callsData,
+    isLoading: callsLoading,
+    isError: callsError,
+    refetch,
+  } = useCallHistory({ limit })
+
+  const calls: CallRecord[] = useMemo(
+    () => (callsData?.items ?? []).map(apiToUiCall),
+    [callsData],
+  )
+
+  const selectedCall = useMemo(
+    () => calls.find((c) => c.id === selectedCallId) ?? null,
+    [calls, selectedCallId],
+  )
+
+  const filteredCalls = useMemo(() => {
+    let result = calls
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (c) =>
+          c.callerName.toLowerCase().includes(q) ||
+          c.callerPhone.toLowerCase().includes(q) ||
+          c.agent.toLowerCase().includes(q),
       )
-    : CALL_RECORDS
+    }
+    if (directionFilter !== 'all') {
+      result = result.filter((c) => c.direction === directionFilter)
+    }
+    return result
+  }, [calls, searchQuery, directionFilter])
+
+  const handleSelectCall = useCallback((call: CallRecord) => {
+    setSelectedCallId(call.id)
+  }, [])
 
   return (
+    <SkeletonToContent loading={loading} skeleton={<CallHistorySkeleton />}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Call History</h1>
-          <p className="text-muted-foreground mt-1">Review past calls with AI-powered insights</p>
+          <p className="text-muted-foreground mt-1">
+            Review past calls with AI-powered insights
+            {callsData ? ` (${callsData.total} total)` : ''}
+          </p>
         </div>
         <Button variant="outline" className="gap-2">
           <Download className="h-4 w-4" />
@@ -228,7 +349,7 @@ export default function CallHistoryPage() {
         </Button>
       </div>
 
-      {/* Search bar */}
+      {/* Search & Filter bar */}
       <div className="flex gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
@@ -239,182 +360,100 @@ export default function CallHistoryPage() {
             className="pl-9"
           />
         </div>
-        <Button variant="outline" size="sm" className="gap-2">
-          <Filter className="h-3.5 w-3.5" />
-          Filter
-        </Button>
+        <Select value={directionFilter} onValueChange={setDirectionFilter}>
+          <SelectTrigger className="w-36">
+            <Filter className="h-3.5 w-3.5 mr-2" />
+            <SelectValue placeholder="Direction" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Calls</SelectItem>
+            <SelectItem value="inbound">Inbound</SelectItem>
+            <SelectItem value="outbound">Outbound</SelectItem>
+            <SelectItem value="missed">Missed</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        {/* Call list */}
-        <div className="lg:col-span-2 space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
-          {filteredCalls.map(call => {
-            const DirIcon = DIRECTION_ICON[call.direction]
-            const outcome = OUTCOME_BADGE[call.outcome]
-            const isSelected = selectedCall?.id === call.id
+      {/* Content */}
+      {callsLoading ? (
+        <LoadingState variant="skeleton-list" count={8} />
+      ) : callsError ? (
+        <ErrorState title="Failed to load call history" onRetry={() => refetch()} />
+      ) : filteredCalls.length === 0 && !searchQuery && directionFilter === 'all' ? (
+        <EmptyState
+          icon={Phone}
+          title="No calls yet"
+          description="Call history will appear here once calls are made."
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-5">
+          {/* Call list */}
+          <div className="lg:col-span-2 space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+            {filteredCalls.length === 0 ? (
+              <EmptyState icon={Search} title="No results" description="Try adjusting your search or filters." />
+            ) : (
+              filteredCalls.map(call => {
+                const DirIcon = DIRECTION_ICON[call.direction]
+                const outcome = OUTCOME_BADGE[call.outcome]
+                const isSelected = selectedCallId === call.id
 
-            return (
-              <div
-                key={call.id}
-                onClick={() => setSelectedCall(call)}
-                className={`rounded-lg border p-3 cursor-pointer transition-all ${
-                  isSelected
-                    ? 'border-blue-500/40 bg-blue-500/5'
-                    : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <DirIcon className={`h-4 w-4 ${DIRECTION_COLOR[call.direction]}`} />
-                    <p className="text-sm font-medium">{call.callerName}</p>
-                  </div>
-                  <ChevronRight className={`h-4 w-4 text-slate-600 transition-transform ${isSelected ? 'rotate-90' : ''}`} />
-                </div>
-                <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                  <span>{call.date}</span>
-                  <span className="text-white/10">|</span>
-                  <span>{call.time}</span>
-                  <span className="text-white/10">|</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {formatDuration(call.duration)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={outcome.variant} className="text-[10px]">{outcome.label}</Badge>
-                    <span className="text-xs text-slate-500">{call.agent}</span>
-                  </div>
-                  <ScoreRing score={call.aiScore} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Detail panel */}
-        <div className="lg:col-span-3">
-          {selectedCall ? (
-            <Card className="glass-card sticky top-4">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg">{selectedCall.callerName}</CardTitle>
-                    <p className="text-sm text-slate-400 mt-0.5">{selectedCall.callerPhone}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={OUTCOME_BADGE[selectedCall.outcome].variant}>
-                      {OUTCOME_BADGE[selectedCall.outcome].label}
-                    </Badge>
-                    <ScoreRing score={selectedCall.aiScore} />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {/* Meta row */}
-                <div className="flex flex-wrap gap-4 text-xs text-slate-400">
-                  <span className="flex items-center gap-1">
-                    {(() => { const I = DIRECTION_ICON[selectedCall.direction]; return <I className={`h-3.5 w-3.5 ${DIRECTION_COLOR[selectedCall.direction]}`} /> })()}
-                    <span className="capitalize">{selectedCall.direction}</span>
-                  </span>
-                  <span>{selectedCall.date} at {selectedCall.time}</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5" />
-                    {formatDuration(selectedCall.duration)}
-                  </span>
-                  <span>Agent: {selectedCall.agent}</span>
-                  <span className={`flex items-center gap-1 ${SENTIMENT_COLOR[selectedCall.sentiment]}`}>
-                    {(() => { const I = SENTIMENT_ICON[selectedCall.sentiment]; return <I className="h-3.5 w-3.5" /> })()}
-                    <span className="capitalize">{selectedCall.sentiment}</span>
-                  </span>
-                </div>
-
-                {/* Audio player */}
-                {selectedCall.duration > 0 && (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className="h-10 w-10 rounded-full bg-blue-500/20 flex items-center justify-center hover:bg-blue-500/30 transition-colors"
-                      >
-                        {isPlaying
-                          ? <Pause className="h-4 w-4 text-blue-400" />
-                          : <Play className="h-4 w-4 text-blue-400 ml-0.5" />
-                        }
-                      </button>
-                      <div className="flex-1">
-                        {/* Waveform scrubber */}
-                        <div className="flex items-end gap-[1px] h-8 mb-1">
-                          {Array.from({ length: 60 }, (_, i) => (
-                            <div
-                              key={i}
-                              className="flex-1 rounded-full bg-blue-400/30 hover:bg-blue-400/60 transition-colors cursor-pointer"
-                              style={{ height: `${Math.max(4, Math.random() * 32)}px` }}
-                            />
-                          ))}
-                        </div>
-                        <div className="flex justify-between text-[10px] text-slate-600">
-                          <span>0:00</span>
-                          <span>{formatDuration(selectedCall.duration)}</span>
-                        </div>
+                return (
+                  <div
+                    key={call.id}
+                    onClick={() => handleSelectCall(call)}
+                    className={`rounded-lg border p-3 cursor-pointer transition-all ${
+                      isSelected
+                        ? 'border-blue-500/40 bg-blue-500/5'
+                        : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <DirIcon className={`h-4 w-4 ${DIRECTION_COLOR[call.direction]}`} />
+                        <p className="text-sm font-medium">{call.callerName}</p>
                       </div>
+                      <ChevronRight className={`h-4 w-4 text-slate-600 transition-transform ${isSelected ? 'rotate-90' : ''}`} />
                     </div>
-                  </div>
-                )}
-
-                {/* Sentiment timeline */}
-                {selectedCall.sentimentTimeline.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-400 mb-2">Sentiment Timeline</h4>
-                    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                      <SentimentChart data={selectedCall.sentimentTimeline} />
-                      <div className="flex justify-between text-[10px] text-slate-600 mt-1">
-                        <span>Start</span>
-                        <span className="text-green-400/50">Positive</span>
-                        <span className="text-slate-500">Neutral</span>
-                        <span className="text-red-400/50">Negative</span>
-                        <span>End</span>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
+                      <span>{call.date}</span>
+                      <span className="text-white/10">|</span>
+                      <span>{call.time}</span>
+                      <span className="text-white/10">|</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatDuration(call.duration)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={outcome.variant} className="text-[10px]">{outcome.label}</Badge>
+                        <span className="text-xs text-slate-500">{call.agent}</span>
                       </div>
+                      <ScoreRing score={call.aiScore} />
                     </div>
                   </div>
-                )}
+                )
+              })
+            )}
+          </div>
 
-                {/* AI Summary */}
-                {selectedCall.summary && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
-                      <Star className="h-3 w-3 text-amber-400" />
-                      AI Summary
-                    </h4>
-                    <p className="text-sm text-slate-300 leading-relaxed">{selectedCall.summary}</p>
-                  </div>
-                )}
-
-                {/* Transcript preview */}
-                {selectedCall.transcript && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-400 mb-2">Transcript Preview</h4>
-                    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400 leading-relaxed whitespace-pre-line max-h-40 overflow-y-auto">
-                      {selectedCall.transcript}
-                    </div>
-                    <Button variant="outline" size="sm" className="mt-2 text-xs">
-                      View Full Transcript
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="glass-card">
-              <CardContent className="flex flex-col items-center justify-center py-20 text-center">
-                <Phone className="h-10 w-10 text-slate-600 mb-3" />
-                <p className="text-slate-400 font-medium">Select a call to view details</p>
-                <p className="text-slate-600 text-sm mt-1">Click on any call record to see AI insights, sentiment analysis, and transcript</p>
-              </CardContent>
-            </Card>
-          )}
+          {/* Detail panel */}
+          <div className="lg:col-span-3">
+            {selectedCall && selectedCallId ? (
+              <CallDetailPanel callId={selectedCallId} call={selectedCall} />
+            ) : (
+              <Card className="glass-card">
+                <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+                  <Phone className="h-10 w-10 text-slate-600 mb-3" />
+                  <p className="text-slate-400 font-medium">Select a call to view details</p>
+                  <p className="text-slate-600 text-sm mt-1">Click on any call record to see AI insights, sentiment analysis, and transcript</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
+    </SkeletonToContent>
   )
 }

@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { SkeletonToContent } from '@/components/animations'
+import { CallCenterSkeleton } from '@/components/ui/page-skeletons'
+import { usePageLoading } from '@/hooks/use-page-loading'
 import { Phone, PhoneOff, Ear, MessageSquare, Hand, Clock, Wifi, WifiOff, Users } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -182,6 +185,7 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CallCenterPage() {
+  const loading = usePageLoading(600)
   const [calls] = useState<ActiveCall[]>(INITIAL_CALLS)
   const [queue] = useState<QueueItem[]>(INITIAL_QUEUE)
   const [durations, setDurations] = useState<Record<string, number>>({})
@@ -208,6 +212,7 @@ export default function CallCenterPage() {
   const totalCalls = calls.length
 
   return (
+    <SkeletonToContent loading={loading} skeleton={<CallCenterSkeleton />}>
     <div className="space-y-6">
       {/* Header */}
       <div>
@@ -339,5 +344,6 @@ export default function CallCenterPage() {
         </div>
       </div>
     </div>
+    </SkeletonToContent>
   )
 }

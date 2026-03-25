@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { SkeletonToContent } from '@/components/animations';
 import { SettingsSkeleton } from '@/components/ui/page-skeletons';
 import { usePageLoading } from '@/hooks/use-page-loading';
-import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration } from '@/hooks/use-settings';
+import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations } from '@/hooks/use-settings';
+import { LoadingState } from '@/components/ui/loading-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Link2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,8 +27,7 @@ import {
 interface Integration {
   id: string;
   name: string;
-  icon: string;
-  category: string;
+  provider: string;
   connected: boolean;
   lastSynced?: string;
 }
@@ -37,23 +40,15 @@ interface TeamMember {
   status: 'active' | 'invited';
 }
 
-// ─── Initial data ─────────────────────────────────────────────────────────────
-
-const INITIAL_INTEGRATIONS: Integration[] = [
-  { id: 'salesforce', name: 'Salesforce', icon: '☁️', category: 'CRM', connected: true, lastSynced: '2 hours ago' },
-  { id: 'hubspot', name: 'HubSpot', icon: '🟠', category: 'CRM', connected: false },
-  { id: 'twilio', name: 'Twilio', icon: '📞', category: 'Telephony', connected: true, lastSynced: '5 minutes ago' },
-  { id: 'stripe', name: 'Stripe', icon: '💳', category: 'Payments', connected: true, lastSynced: '1 day ago' },
-  { id: 'gcal', name: 'Google Calendar', icon: '📅', category: 'Scheduling', connected: false },
-  { id: 'mixpanel', name: 'Mixpanel', icon: '📊', category: 'Analytics', connected: false },
-];
-
-const INITIAL_TEAM: TeamMember[] = [
-  { id: '1', name: 'Alice Johnson', email: 'alice@company.com', role: 'admin', status: 'active' },
-  { id: '2', name: 'Bob Smith', email: 'bob@company.com', role: 'manager', status: 'active' },
-  { id: '3', name: 'Carol White', email: 'carol@company.com', role: 'agent', status: 'active' },
-  { id: '4', name: 'Dave Brown', email: 'dave@company.com', role: 'viewer', status: 'invited' },
-];
+const PROVIDER_ICONS: Record<string, string> = {
+  salesforce: '☁️',
+  hubspot: '🟠',
+  twilio: '📞',
+  stripe: '💳',
+  google: '📅',
+  mixpanel: '📊',
+  default: '🔗',
+};
 
 // ─── Toast helper ─────────────────────────────────────────────────────────────
 
@@ -119,27 +114,33 @@ function ToggleRow({ label, description, checked, onCheckedChange }: {
 
 export default function SettingsPage() {
   const loading = usePageLoading(700)
-  // ── Integrations ──
+  // ── Integrations (real API) ──
+  const { data: apiIntegrations, isLoading: integrationsLoading, isError: integrationsError, refetch: refetchIntegrations } = useIntegrations();
   const updateIntegrationMutation = useUpdateIntegration();
-  const [integrations, setIntegrations] = useState<Integration[]>(INITIAL_INTEGRATIONS);
+
+  const integrations: Integration[] = (apiIntegrations ?? []).map(i => ({
+    id: i.id,
+    name: i.name,
+    provider: i.provider,
+    connected: i.is_active,
+    lastSynced: i.created_at ? new Date(i.created_at).toLocaleDateString() : undefined,
+  }));
 
   // ── Team (real API) ──
-  const { data: apiTeam } = useTeamMembers();
+  const { data: apiTeam, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeamMembers();
   const addTeamMemberMutation = useAddTeamMember();
   const updateTeamMemberMutation = useUpdateTeamMember();
 
-  // Map API team members to local type; fall back to INITIAL_TEAM while loading
   const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const team: TeamMember[] = (apiTeam
-    ? apiTeam.map(m => ({
-        id: m.id,
-        name: `${m.first_name} ${m.last_name}`.trim() || m.email,
-        email: m.email,
-        role: m.role,
-        status: 'active' as const,
-      }))
-    : INITIAL_TEAM
-  ).filter(m => !removedIds.includes(m.id));
+  const team: TeamMember[] = (apiTeam ?? [])
+    .map(m => ({
+      id: m.id,
+      name: `${m.first_name} ${m.last_name}`.trim() || m.email,
+      email: m.email,
+      role: m.role,
+      status: 'active' as const,
+    }))
+    .filter(m => !removedIds.includes(m.id));
 
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
