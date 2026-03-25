@@ -1,11 +1,10 @@
 import { SignJWT, jwtVerify, JWTPayload } from "jose";
-import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { queryOne } from "./db";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "CHANGE-ME-IN-PRODUCTION"
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required and must not be empty");
+}
+const SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 const ALG = "HS256";
 const ACCESS_TTL = "30m";
 const REFRESH_TTL = "7d";
