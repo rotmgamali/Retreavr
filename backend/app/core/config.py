@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
 
     # S3/R2 Storage
     s3_bucket_name: str = "retrevr-recordings"

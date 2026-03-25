@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,10 @@ from app.api.deps import get_current_org, get_db
 from app.models.calls import Call, CallSentiment
 from app.models.leads import Lead
 from app.models.voice_agents import VoiceAgent
-from app.models.campaigns import Campaign
+from app.models.campaigns import Campaign, CampaignLead
+
+# Estimated cost per minute of call (USD)
+_COST_PER_MINUTE = 0.05
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -170,4 +173,463 @@ async def get_overview(
         "calls_this_month": call_row.this_month,
         "active_agents": active_agents,
         "active_campaigns": active_campaigns,
+    }
+
+
+def _date_window(days: int, start_date: Optional[date], end_date: Optional[date]):
+    """Return (since, until) as timezone-aware datetimes."""
+    now = datetime.now(timezone.utc)
+    if start_date:
+        since = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+    else:
+        since = now - timedelta(days=days)
+    if end_date:
+        until = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc)
+    else:
+        until = now
+    return since, until
+
+
+@router.get("/dashboard")
+async def get_dashboard(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """KPI dashboard: total calls, conversion rate, avg duration, estimated revenue."""
+    since, until = _date_window(days, start_date, end_date)
+
+    calls_q = await db.execute(
+        select(
+            func.count().label("total"),
+            func.avg(Call.duration).label("avg_duration"),
+            func.sum(Call.duration).label("total_duration_sec"),
+            func.count().filter(Call.status == "completed").label("completed"),
+        )
+        .select_from(Call)
+        .where(
+            Call.organization_id == org_id,
+            Call.is_deleted.is_(False),
+            Call.created_at >= since,
+            Call.created_at <= until,
+        )
+    )
+    call_row = calls_q.one()
+
+    leads_q = await db.execute(
+        select(
+            func.count().label("total"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+        )
+        .select_from(Lead)
+        .where(
+            Lead.organization_id == org_id,
+            Lead.is_deleted.is_(False),
+            Lead.created_at >= since,
+            Lead.created_at <= until,
+        )
+    )
+    lead_row = leads_q.one()
+
+    total_calls = call_row.total or 0
+    total_leads = lead_row.total or 1
+    bound = lead_row.bound or 0
+    total_dur_sec = call_row.total_duration_sec or 0
+    estimated_revenue = round((total_dur_sec / 60.0) * _COST_PER_MINUTE, 2)
+
+    return {
+        "period_days": days,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "total_calls": total_calls,
+        "completed_calls": call_row.completed or 0,
+        "avg_duration_sec": round(call_row.avg_duration or 0, 1),
+        "total_leads": lead_row.total or 0,
+        "conversion_rate": round((bound / total_leads) * 100, 2),
+        "estimated_cost_usd": estimated_revenue,
+    }
+
+
+@router.get("/funnel")
+async def get_funnel(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """Conversion funnel with optional date range filter."""
+    since, until = _date_window(days, start_date, end_date)
+
+    result = await db.execute(
+        select(
+            func.count().label("total_leads"),
+            func.count().filter(Lead.status == "contacted").label("contacted"),
+            func.count().filter(Lead.status == "qualified").label("qualified"),
+            func.count().filter(Lead.status == "quoted").label("quoted"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+            func.count().filter(Lead.status == "lost").label("lost"),
+        )
+        .select_from(Lead)
+        .where(
+            Lead.organization_id == org_id,
+            Lead.is_deleted.is_(False),
+            Lead.created_at >= since,
+            Lead.created_at <= until,
+        )
+    )
+    row = result.one()
+    total = row.total_leads or 1
+    return {
+        "period_days": days,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "total_leads": row.total_leads,
+        "funnel": {
+            "contacted": row.contacted,
+            "qualified": row.qualified,
+            "quoted": row.quoted,
+            "bound": row.bound,
+            "lost": row.lost,
+        },
+        "conversion_rate": round((row.bound / total) * 100, 2),
+        "drop_off": {
+            "contact_to_qualify": round(((row.contacted - row.qualified) / max(row.contacted, 1)) * 100, 1),
+            "qualify_to_quote": round(((row.qualified - row.quoted) / max(row.qualified, 1)) * 100, 1),
+            "quote_to_bind": round(((row.quoted - row.bound) / max(row.quoted, 1)) * 100, 1),
+        },
+    }
+
+
+@router.get("/agents")
+async def get_agents_ranking(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """Agent performance ranking sorted by completed calls descending."""
+    since, until = _date_window(days, start_date, end_date)
+
+    result = await db.execute(
+        select(
+            VoiceAgent.id,
+            VoiceAgent.name,
+            VoiceAgent.status,
+            func.count(Call.id).label("total_calls"),
+            func.avg(Call.duration).label("avg_duration"),
+            func.avg(Call.sentiment_score).label("avg_sentiment"),
+            func.count().filter(Call.status == "completed").label("completed"),
+            func.sum(Call.duration).label("total_duration_sec"),
+        )
+        .select_from(VoiceAgent)
+        .outerjoin(
+            Call,
+            (Call.agent_id == VoiceAgent.id)
+            & (Call.created_at >= since)
+            & (Call.created_at <= until)
+            & (Call.is_deleted.is_(False)),
+        )
+        .where(VoiceAgent.organization_id == org_id)
+        .group_by(VoiceAgent.id, VoiceAgent.name, VoiceAgent.status)
+        .order_by(func.count().filter(Call.status == "completed").desc())
+    )
+    rows = result.all()
+    return {
+        "period_days": days,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "agents": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "status": r.status,
+                "total_calls": r.total_calls,
+                "completed_calls": r.completed,
+                "avg_duration_sec": round(r.avg_duration or 0, 1),
+                "avg_sentiment": round(r.avg_sentiment or 0, 2),
+                "estimated_cost_usd": round(((r.total_duration_sec or 0) / 60.0) * _COST_PER_MINUTE, 2),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/agents/{agent_id}")
+async def get_agent_metrics(
+    agent_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """Individual agent metrics."""
+    since, until = _date_window(days, start_date, end_date)
+
+    agent_q = await db.execute(
+        select(VoiceAgent).where(VoiceAgent.id == agent_id, VoiceAgent.organization_id == org_id)
+    )
+    agent = agent_q.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    calls_q = await db.execute(
+        select(
+            func.count().label("total"),
+            func.count().filter(Call.status == "completed").label("completed"),
+            func.count().filter(Call.status == "failed").label("failed"),
+            func.count().filter(Call.direction == "inbound").label("inbound"),
+            func.count().filter(Call.direction == "outbound").label("outbound"),
+            func.avg(Call.duration).label("avg_duration"),
+            func.sum(Call.duration).label("total_duration_sec"),
+            func.avg(Call.sentiment_score).label("avg_sentiment"),
+        )
+        .select_from(Call)
+        .where(
+            Call.agent_id == agent_id,
+            Call.organization_id == org_id,
+            Call.is_deleted.is_(False),
+            Call.created_at >= since,
+            Call.created_at <= until,
+        )
+    )
+    call_row = calls_q.one()
+
+    daily_q = await db.execute(
+        select(
+            cast(Call.created_at, Date).label("date"),
+            func.count().label("total"),
+        )
+        .where(
+            Call.agent_id == agent_id,
+            Call.organization_id == org_id,
+            Call.is_deleted.is_(False),
+            Call.created_at >= since,
+            Call.created_at <= until,
+        )
+        .group_by(cast(Call.created_at, Date))
+        .order_by(cast(Call.created_at, Date))
+    )
+    daily_rows = daily_q.all()
+
+    total = call_row.total or 1
+    return {
+        "agent": {"id": str(agent.id), "name": agent.name, "status": agent.status},
+        "period_days": days,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "summary": {
+            "total_calls": call_row.total or 0,
+            "completed_calls": call_row.completed or 0,
+            "failed_calls": call_row.failed or 0,
+            "inbound_calls": call_row.inbound or 0,
+            "outbound_calls": call_row.outbound or 0,
+            "completion_rate": round(((call_row.completed or 0) / total) * 100, 2),
+            "avg_duration_sec": round(call_row.avg_duration or 0, 1),
+            "avg_sentiment": round(call_row.avg_sentiment or 0, 2),
+            "estimated_cost_usd": round(((call_row.total_duration_sec or 0) / 60.0) * _COST_PER_MINUTE, 2),
+        },
+        "daily": [{"date": str(r.date), "total_calls": r.total} for r in daily_rows],
+    }
+
+
+@router.get("/costs")
+async def get_costs(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """Cost summary based on call minutes at ${_cost_per_min}/min."""
+    since, until = _date_window(days, start_date, end_date)
+
+    result = await db.execute(
+        select(
+            cast(Call.created_at, Date).label("date"),
+            func.count().label("total_calls"),
+            func.sum(Call.duration).label("total_duration_sec"),
+        )
+        .where(
+            Call.organization_id == org_id,
+            Call.is_deleted.is_(False),
+            Call.created_at >= since,
+            Call.created_at <= until,
+        )
+        .group_by(cast(Call.created_at, Date))
+        .order_by(cast(Call.created_at, Date))
+    )
+    rows = result.all()
+
+    daily = []
+    total_cost = 0.0
+    total_minutes = 0.0
+    for r in rows:
+        dur_sec = r.total_duration_sec or 0
+        minutes = dur_sec / 60.0
+        cost = round(minutes * _COST_PER_MINUTE, 4)
+        total_cost += cost
+        total_minutes += minutes
+        daily.append({"date": str(r.date), "total_calls": r.total_calls, "minutes": round(minutes, 2), "cost_usd": cost})
+
+    return {
+        "period_days": days,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "cost_per_minute_usd": _COST_PER_MINUTE,
+        "total_minutes": round(total_minutes, 2),
+        "total_cost_usd": round(total_cost, 4),
+        "daily": daily,
+    }
+
+
+@router.get("/rollups/{period}")
+async def get_rollups(
+    period: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=90, ge=1, le=730),
+    start_date: Optional[date] = Query(default=None),
+    end_date: Optional[date] = Query(default=None),
+):
+    """Aggregated rollup data. period must be 'daily', 'weekly', or 'monthly'."""
+    if period not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="period must be 'daily', 'weekly', or 'monthly'")
+
+    since, until = _date_window(days, start_date, end_date)
+
+    if period == "daily":
+        bucket = cast(Call.created_at, Date)
+        label = "date"
+    elif period == "weekly":
+        bucket = func.date_trunc("week", Call.created_at)
+        label = "week_start"
+    else:
+        bucket = func.date_trunc("month", Call.created_at)
+        label = "month_start"
+
+    calls_q = await db.execute(
+        select(
+            bucket.label("bucket"),
+            func.count().label("total_calls"),
+            func.count().filter(Call.status == "completed").label("completed"),
+            func.avg(Call.duration).label("avg_duration"),
+            func.sum(Call.duration).label("total_duration_sec"),
+        )
+        .where(
+            Call.organization_id == org_id,
+            Call.is_deleted.is_(False),
+            Call.created_at >= since,
+            Call.created_at <= until,
+        )
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    call_rows = calls_q.all()
+
+    leads_q = await db.execute(
+        select(
+            func.date_trunc(period if period != "daily" else "day", Lead.created_at).label("bucket"),
+            func.count().label("new_leads"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+        )
+        .where(
+            Lead.organization_id == org_id,
+            Lead.is_deleted.is_(False),
+            Lead.created_at >= since,
+            Lead.created_at <= until,
+        )
+        .group_by(func.date_trunc(period if period != "daily" else "day", Lead.created_at))
+    )
+    lead_rows = {str(r.bucket)[:10]: r for r in leads_q.all()}
+
+    return {
+        "period": period,
+        "start_date": since.date().isoformat(),
+        "end_date": until.date().isoformat(),
+        "rollups": [
+            {
+                label: str(r.bucket)[:10],
+                "total_calls": r.total_calls,
+                "completed_calls": r.completed,
+                "avg_duration_sec": round(r.avg_duration or 0, 1),
+                "estimated_cost_usd": round(((r.total_duration_sec or 0) / 60.0) * _COST_PER_MINUTE, 4),
+                "new_leads": lead_rows.get(str(r.bucket)[:10], None) and lead_rows[str(r.bucket)[:10]].new_leads or 0,
+                "bound_leads": lead_rows.get(str(r.bucket)[:10], None) and lead_rows[str(r.bucket)[:10]].bound or 0,
+            }
+            for r in call_rows
+        ],
+    }
+
+
+@router.get("/campaigns/{campaign_id}")
+async def get_campaign_roi(
+    campaign_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+):
+    """Campaign ROI: lead counts, conversion, call stats."""
+    campaign_q = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id, Campaign.organization_id == org_id, Campaign.is_deleted.is_(False))
+    )
+    campaign = campaign_q.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    leads_q = await db.execute(
+        select(
+            func.count().label("total"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+            func.count().filter(Lead.status == "qualified").label("qualified"),
+            func.count().filter(Lead.status == "quoted").label("quoted"),
+            func.count().filter(Lead.status == "lost").label("lost"),
+        )
+        .select_from(CampaignLead)
+        .join(Lead, Lead.id == CampaignLead.lead_id)
+        .where(CampaignLead.campaign_id == campaign_id, Lead.is_deleted.is_(False))
+    )
+    lead_row = leads_q.one()
+
+    calls_q = await db.execute(
+        select(
+            func.count().label("total"),
+            func.count().filter(Call.status == "completed").label("completed"),
+            func.avg(Call.duration).label("avg_duration"),
+            func.sum(Call.duration).label("total_duration_sec"),
+        )
+        .select_from(CampaignLead)
+        .join(Lead, Lead.id == CampaignLead.lead_id)
+        .join(Call, Call.lead_id == Lead.id)
+        .where(CampaignLead.campaign_id == campaign_id, Call.is_deleted.is_(False))
+    )
+    call_row = calls_q.one()
+
+    total_leads = lead_row.total or 1
+    total_dur = call_row.total_duration_sec or 0
+    estimated_cost = round((total_dur / 60.0) * _COST_PER_MINUTE, 4)
+
+    return {
+        "campaign": {"id": str(campaign.id), "name": campaign.name, "status": campaign.status, "type": campaign.type},
+        "leads": {
+            "total": lead_row.total or 0,
+            "qualified": lead_row.qualified or 0,
+            "quoted": lead_row.quoted or 0,
+            "bound": lead_row.bound or 0,
+            "lost": lead_row.lost or 0,
+            "conversion_rate": round(((lead_row.bound or 0) / total_leads) * 100, 2),
+        },
+        "calls": {
+            "total": call_row.total or 0,
+            "completed": call_row.completed or 0,
+            "avg_duration_sec": round(call_row.avg_duration or 0, 1),
+            "estimated_cost_usd": estimated_cost,
+        },
+        "roi": {
+            "cost_per_lead_usd": round(estimated_cost / max(lead_row.total or 1, 1), 4),
+            "cost_per_bound_usd": round(estimated_cost / max(lead_row.bound or 1, 1), 4),
+        },
     }
