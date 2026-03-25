@@ -130,7 +130,34 @@ class VoiceSessionManager:
                 call_id=session.call_db_id,
             )
 
+            # Fire post-call processing (extraction + lead scoring) as a background task
+            transcript_text = session.transcript.as_text()
+            if transcript_text:
+                asyncio.create_task(
+                    self._run_post_call_processing(
+                        call_db_id=session.call_db_id,
+                        transcript_text=transcript_text,
+                    )
+                )
+
         logger.info("Voice session closed (call_sid=%s)", call_sid)
+
+    @staticmethod
+    async def _run_post_call_processing(call_db_id: Any, transcript_text: str) -> None:
+        """Run extraction and lead scoring in a background task with its own DB session."""
+        from app.core.database import async_session
+        from app.services.post_call_processor import run_post_call_processing
+
+        try:
+            async with async_session() as db:
+                await run_post_call_processing(
+                    call_db_id=call_db_id,
+                    transcript_text=transcript_text,
+                    db=db,
+                )
+                await db.commit()
+        except Exception:
+            logger.exception("Post-call processing failed for call %s", call_db_id)
 
     def get_session(self, call_sid: str) -> VoiceSession | None:
         return self._sessions.get(call_sid)

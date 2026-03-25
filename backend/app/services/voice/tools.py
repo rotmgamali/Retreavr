@@ -16,6 +16,8 @@ from sqlalchemy import or_, select
 from app.core.database import async_session
 from app.models.calls import Call
 from app.models.leads import Lead, LeadInteraction
+from app.schemas.quotes import QuoteRequest
+from app.services.insurance_quotes import calculate_quote
 
 logger = logging.getLogger(__name__)
 
@@ -239,10 +241,42 @@ class ToolExecutor:
         zip_code: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a new lead with quote-request status and log the interaction."""
+        """Calculate a real insurance quote and upsert a lead record."""
+        d = details or {}
+
+        # Build and run the quote calculation
+        quote_result = None
+        try:
+            req = QuoteRequest(
+                insurance_type=insurance_type,
+                zip_code=zip_code,
+                age=d.get("age"),
+                coverage_amount=d.get("coverage_amount"),
+                deductible=d.get("deductible"),
+                driving_record=d.get("driving_record"),
+                vehicle_year=d.get("vehicle_year"),
+                vehicle_type=d.get("vehicle_type"),
+                property_value=d.get("property_value"),
+                construction_type=d.get("construction_type"),
+                home_age=d.get("home_age"),
+                claims_history=d.get("claims_history"),
+                gender=d.get("gender"),
+                tobacco_status=d.get("tobacco_status"),
+                health_class=d.get("health_class"),
+                term_years=d.get("term_years"),
+            )
+            quote_result = calculate_quote(req)
+            logger.info(
+                "Quote calculated: %s $%.2f/mo (call_sid=%s)",
+                insurance_type,
+                quote_result.monthly_premium,
+                self.call_sid,
+            )
+        except Exception:
+            logger.exception("Quote calculation failed (call_sid=%s)", self.call_sid)
+
         try:
             async with async_session() as db:
-                # Find or create a lead for this quote request
                 lead = None
                 if first_name and last_name and self.organization_id:
                     stmt = (
@@ -267,7 +301,8 @@ class ToolExecutor:
                         status="quoted",
                         metadata_={
                             "zip_code": zip_code,
-                            "quote_details": details,
+                            "quote_details": d,
+                            "quote_result": quote_result.model_dump() if quote_result else None,
                             "source": "voice_agent",
                             "call_sid": self.call_sid,
                         },
@@ -278,37 +313,73 @@ class ToolExecutor:
                 elif lead:
                     lead.insurance_type = insurance_type
                     lead.status = "quoted"
+                    existing_meta = lead.metadata_ or {}
+                    existing_meta["quote_result"] = quote_result.model_dump() if quote_result else None
+                    lead.metadata_ = existing_meta
                     await db.flush()
 
-                # Log the quote interaction
                 if lead:
                     interaction = LeadInteraction(
                         lead_id=lead.id,
                         interaction_type="quote_request",
-                        notes=f"Quote requested for {insurance_type} insurance via voice agent.",
+                        notes=(
+                            f"Quote for {insurance_type} insurance via voice agent. "
+                            + (
+                                f"Monthly premium: ${quote_result.monthly_premium:.2f}. "
+                                f"Annual premium: ${quote_result.annual_premium:.2f}."
+                                if quote_result
+                                else "Quote calculation unavailable."
+                            )
+                        ),
                         metadata_={
                             "insurance_type": insurance_type,
                             "zip_code": zip_code,
-                            "details": details,
+                            "details": d,
                             "call_sid": self.call_sid,
+                            "monthly_premium": quote_result.monthly_premium if quote_result else None,
+                            "annual_premium": quote_result.annual_premium if quote_result else None,
                         },
                     )
                     db.add(interaction)
 
                 await db.commit()
 
+                if quote_result:
+                    msg = (
+                        f"Based on your information, I can offer you {insurance_type} insurance "
+                        f"at ${quote_result.monthly_premium:.2f} per month "
+                        f"(${quote_result.annual_premium:.2f} annually). "
+                        "Would you like to proceed or hear more details about the coverage?"
+                    )
+                else:
+                    msg = (
+                        f"I've noted your interest in {insurance_type} insurance. "
+                        "A licensed agent will follow up with a personalised quote shortly."
+                    )
+
                 return {
-                    "status": "quote_requested",
+                    "status": "quoted",
                     "insurance_type": insurance_type,
                     "lead_id": str(lead.id) if lead else None,
+                    "monthly_premium": quote_result.monthly_premium if quote_result else None,
+                    "annual_premium": quote_result.annual_premium if quote_result else None,
+                    "rate_table_version": quote_result.rate_table_version if quote_result else None,
+                    "message": msg,
+                }
+        except Exception:
+            logger.exception("Quote persistence failed (call_sid=%s)", self.call_sid)
+            if quote_result:
+                return {
+                    "status": "quoted",
+                    "insurance_type": insurance_type,
+                    "monthly_premium": quote_result.monthly_premium,
+                    "annual_premium": quote_result.annual_premium,
                     "message": (
-                        f"I've submitted a {insurance_type} insurance quote request"
-                        f"{' for ' + first_name if first_name else ''}. "
-                        "A licensed agent will follow up with a personalised quote shortly."
+                        f"Based on your information, I can offer you {insurance_type} insurance "
+                        f"at ${quote_result.monthly_premium:.2f} per month. "
+                        "A licensed agent will confirm the details shortly."
                     ),
                 }
-        except Exception as exc:
-            logger.exception("Quote generation failed (call_sid=%s)", self.call_sid)
             return {
                 "status": "pending",
                 "message": (
