@@ -1,78 +1,70 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api, type PaginatedResponse } from '@/lib/api-client'
+import type { Lead as ApiLead } from '@/lib/api-types'
 
-export type Stage = 'new' | 'contacted' | 'qualified' | 'quoted' | 'bound' | 'lost'
+export type { ApiLead as LeadApi }
 
-export interface Lead {
-  id: string
-  name: string
-  email: string
-  phone: string
-  company?: string
-  insuranceType: string
-  estimatedPremium: number
-  source: string
-  assignedAgent: string
-  lastContact?: string
-  notes?: string
-  stage: Stage
+// Keep the Stage type for backward compat with page components
+export type Stage = ApiLead['status']
+
+export function useLeads(params?: { limit?: number; offset?: number; status?: string }) {
+  return useQuery({
+    queryKey: ['leads', params],
+    queryFn: () => {
+      const searchParams = new URLSearchParams()
+      if (params?.limit) searchParams.set('limit', String(params.limit))
+      if (params?.offset) searchParams.set('offset', String(params.offset))
+      if (params?.status) searchParams.set('status', params.status)
+      const qs = searchParams.toString()
+      return api.get<PaginatedResponse<ApiLead>>(`/leads/${qs ? `?${qs}` : ''}`)
+    },
+    staleTime: 30_000,
+  })
 }
 
-// Simulated data — will be replaced by api.get('/leads') when backend is ready
-const SEED_LEADS: Lead[] = [
-  { id: '1', name: 'James Wilson', email: 'james@acme.co', phone: '(555) 123-4567', company: 'Acme Corp', insuranceType: 'Commercial General Liability', estimatedPremium: 4200, source: 'Inbound Call', assignedAgent: 'Sarah AI', lastContact: '2 hours ago', stage: 'new' },
-  { id: '2', name: 'Maria Garcia', email: 'maria@garcia.net', phone: '(555) 234-5678', insuranceType: 'Home Insurance', estimatedPremium: 1800, source: 'Website', assignedAgent: 'Sarah AI', lastContact: '30 min ago', stage: 'new' },
-  { id: '3', name: 'Robert Chen', email: 'rchen@tech.io', phone: '(555) 345-6789', company: 'TechStart Inc', insuranceType: 'Cyber Liability', estimatedPremium: 6500, source: 'Referral', assignedAgent: 'Mike AI', lastContact: '1 day ago', stage: 'contacted' },
-  { id: '4', name: 'David Kim', email: 'dkim@enterprise.com', phone: '(555) 567-8901', company: 'Enterprise LLC', insuranceType: "Workers' Comp", estimatedPremium: 8900, source: 'Inbound Call', assignedAgent: 'Alex AI', lastContact: '3 hours ago', stage: 'qualified' },
-  { id: '5', name: 'Michael Davis', email: 'm.davis@corp.co', phone: '(555) 789-0123', company: 'Davis & Sons', insuranceType: 'Professional Liability', estimatedPremium: 5400, source: 'Referral', assignedAgent: 'Mike AI', lastContact: '1 day ago', stage: 'quoted' },
-  { id: '6', name: 'Patricia Moore', email: 'p.moore@home.com', phone: '(555) 901-2345', insuranceType: 'Home Insurance', estimatedPremium: 2400, source: 'Inbound Call', assignedAgent: 'Sarah AI', lastContact: '2 days ago', stage: 'bound' },
-]
-
-let localLeads = [...SEED_LEADS]
-
-export function useLeads() {
+export function useLead(id: string) {
   return useQuery({
-    queryKey: ['leads'],
-    queryFn: async () => {
-      await new Promise((r) => setTimeout(r, 300))
-      return localLeads
-    },
-    initialData: localLeads,
-    staleTime: 30_000,
+    queryKey: ['leads', id],
+    queryFn: () => api.get<ApiLead>(`/leads/${id}`),
+    enabled: !!id,
   })
 }
 
 export function useCreateLead() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (data: Omit<Lead, 'id'>) => {
-      await new Promise((r) => setTimeout(r, 300))
-      const lead: Lead = { ...data, id: Date.now().toString() }
-      localLeads = [lead, ...localLeads]
-      return lead
+    mutationFn: (data: {
+      first_name: string
+      last_name: string
+      email: string
+      phone: string
+      insurance_type: string
+      status?: Stage
+      metadata?: Record<string, unknown>
+    }) => api.post<ApiLead>('/leads/', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
   })
 }
 
 export function useUpdateLead() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Lead> }) => {
-      await new Promise((r) => setTimeout(r, 200))
-      localLeads = localLeads.map((l) => (l.id === id ? { ...l, ...updates } : l))
-      return localLeads.find((l) => l.id === id)!
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<ApiLead> }) =>
+      api.patch<ApiLead>(`/leads/${id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
   })
 }
 
 export function useDeleteLead() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => {
-      await new Promise((r) => setTimeout(r, 200))
-      localLeads = localLeads.filter((l) => l.id !== id)
+    mutationFn: (id: string) => api.delete(`/leads/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['leads'] }),
   })
 }

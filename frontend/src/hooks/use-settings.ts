@@ -1,41 +1,60 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSettingsStore, type Integration, type TeamMember } from '@/stores'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api-client'
+import type { Organization } from '@/lib/api-types'
 
-export function useUpdateIntegration() {
-  const { updateIntegration } = useSettingsStore()
+export function useOrganization() {
+  return useQuery({
+    queryKey: ['settings', 'organization'],
+    queryFn: () => api.get<Organization>('/organizations/me'),
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateOrganization() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Integration> }) => {
-      await new Promise((r) => setTimeout(r, 400))
-      updateIntegration(id, updates)
-      return { id, ...updates }
+    mutationFn: (updates: Partial<Organization>) =>
+      api.patch<Organization>('/organizations/me', updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
+  })
+}
+
+export function useUpdateIntegration() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: Record<string, unknown> }) =>
+      api.patch(`/settings/integrations/${id}`, updates),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
   })
 }
 
+export function useTeamMembers() {
+  return useQuery({
+    queryKey: ['settings', 'team'],
+    queryFn: () =>
+      api.get<{ id: string; email: string; first_name: string; last_name: string; role: string }[]>(
+        '/organizations/me/users'
+      ),
+    staleTime: 30_000,
+  })
+}
+
 export function useAddTeamMember() {
-  const { addTeamMember } = useSettingsStore()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (member: TeamMember) => {
-      await new Promise((r) => setTimeout(r, 300))
-      addTeamMember(member)
-      return member
-    },
+    mutationFn: (data: { email: string; first_name: string; last_name: string; role: string }) =>
+      api.post('/organizations/me/users', data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'team'] }),
   })
 }
 
 export function useUpdateTeamMember() {
-  const { updateTeamMember } = useSettingsStore()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<TeamMember> }) => {
-      await new Promise((r) => setTimeout(r, 300))
-      updateTeamMember(id, updates)
-      return { id, ...updates }
-    },
+    mutationFn: ({ id, updates }: { id: string; updates: Record<string, unknown> }) =>
+      api.patch(`/organizations/me/users/${id}`, updates),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'team'] }),
   })
 }

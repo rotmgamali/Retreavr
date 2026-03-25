@@ -1,59 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api-client'
+import type { DashboardKPIs, AgentPerformance } from '@/lib/api-types'
 
-export interface ConversionDataPoint {
-  week: string
-  calls: number
-  qualified: number
-  quoted: number
-  bound: number
-}
-
-export interface AgentPerformance {
-  name: string
-  calls: number
-  conversion: number
-  avgDuration: number
-  satisfaction: number
-}
-
-export interface DashboardKPIs {
-  totalCalls: number
-  conversionRate: number
-  activeLeads: number
-  revenue: number
-  callsChange: number
-  conversionChange: number
-  leadsChange: number
-  revenueChange: number
-}
-
-const MOCK_KPIS: DashboardKPIs = {
-  totalCalls: 3842,
-  conversionRate: 28.3,
-  activeLeads: 1247,
-  revenue: 142000,
-  callsChange: 12.4,
-  conversionChange: 2.1,
-  leadsChange: 8.7,
-  revenueChange: -3.2,
-}
-
-const MOCK_AGENTS: AgentPerformance[] = [
-  { name: 'Sarah AI', calls: 342, conversion: 32, avgDuration: 4.2, satisfaction: 94 },
-  { name: 'Mike AI', calls: 287, conversion: 28, avgDuration: 6.1, satisfaction: 89 },
-  { name: 'Alex AI', calls: 198, conversion: 24, avgDuration: 5.4, satisfaction: 91 },
-  { name: 'Jordan AI', calls: 256, conversion: 30, avgDuration: 3.8, satisfaction: 92 },
-  { name: 'Lisa AI', calls: 167, conversion: 41, avgDuration: 4.8, satisfaction: 96 },
-]
+export type { DashboardKPIs, AgentPerformance }
 
 export function useDashboardKPIs() {
   return useQuery({
     queryKey: ['analytics', 'kpis'],
-    queryFn: async () => {
-      await new Promise((r) => setTimeout(r, 300))
-      return MOCK_KPIS
-    },
-    initialData: MOCK_KPIS,
+    queryFn: () => api.get<DashboardKPIs>('/analytics/dashboard'),
     staleTime: 60_000,
   })
 }
@@ -61,11 +15,27 @@ export function useDashboardKPIs() {
 export function useAgentPerformance() {
   return useQuery({
     queryKey: ['analytics', 'agents'],
-    queryFn: async () => {
-      await new Promise((r) => setTimeout(r, 300))
-      return MOCK_AGENTS
-    },
-    initialData: MOCK_AGENTS,
+    queryFn: () => api.get<AgentPerformance[]>('/analytics/agents'),
+    staleTime: 60_000,
+  })
+}
+
+export function useConversionFunnel() {
+  return useQuery({
+    queryKey: ['analytics', 'funnel'],
+    queryFn: () =>
+      api.get<{ stage: string; count: number }[]>('/analytics/conversion-funnel'),
+    staleTime: 60_000,
+  })
+}
+
+export function useCallVolume(period: 'hourly' | 'daily' | 'weekly' = 'daily') {
+  return useQuery({
+    queryKey: ['analytics', 'call-volume', period],
+    queryFn: () =>
+      api.get<{ timestamp: string; count: number }[]>(
+        `/analytics/call-volume?period=${period}`
+      ),
     staleTime: 60_000,
   })
 }

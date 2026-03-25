@@ -1,45 +1,66 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAgentStore, type VoiceAgent } from '@/stores'
+import { api, type PaginatedResponse } from '@/lib/api-client'
+import type { VoiceAgent as ApiVoiceAgent } from '@/lib/api-types'
 
-// In a real app these would hit an API — for now they use the Zustand store as source of truth
-export function useAgents() {
-  const { agents, setLoading } = useAgentStore()
+// Re-export the API type for consumers
+export type { ApiVoiceAgent as VoiceAgentApi }
+
+export function useAgents(params?: { limit?: number; offset?: number }) {
   return useQuery({
-    queryKey: ['agents'],
-    queryFn: async () => {
-      setLoading(true)
-      // Simulate API call
-      await new Promise((r) => setTimeout(r, 400))
-      setLoading(false)
-      return agents
+    queryKey: ['agents', params],
+    queryFn: () => {
+      const searchParams = new URLSearchParams()
+      if (params?.limit) searchParams.set('limit', String(params.limit))
+      if (params?.offset) searchParams.set('offset', String(params.offset))
+      const qs = searchParams.toString()
+      return api.get<PaginatedResponse<ApiVoiceAgent>>(
+        `/voice-agents/${qs ? `?${qs}` : ''}`
+      )
     },
-    initialData: agents,
     staleTime: 30_000,
   })
 }
 
 export function useAgent(id: string) {
-  const { agents } = useAgentStore()
   return useQuery({
     queryKey: ['agents', id],
-    queryFn: async () => {
-      const agent = agents.find((a) => a.id === id)
-      if (!agent) throw new Error(`Agent ${id} not found`)
-      return agent
-    },
+    queryFn: () => api.get<ApiVoiceAgent>(`/voice-agents/${id}`),
     enabled: !!id,
   })
 }
 
-export function useUpdateAgent() {
-  const { updateAgent } = useAgentStore()
+export function useCreateAgent() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<VoiceAgent> }) => {
-      await new Promise((r) => setTimeout(r, 300))
-      updateAgent(id, updates)
-      return { id, ...updates }
+    mutationFn: (data: {
+      name: string
+      persona: string
+      system_prompt: string
+      voice?: string
+      status?: string
+      vad_config?: Record<string, unknown>
+    }) => api.post<ApiVoiceAgent>('/voice-agents/', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] })
     },
+  })
+}
+
+export function useUpdateAgent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<ApiVoiceAgent> }) =>
+      api.patch<ApiVoiceAgent>(`/voice-agents/${id}`, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] })
+    },
+  })
+}
+
+export function useDeleteAgent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/voice-agents/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] })
     },
