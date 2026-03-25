@@ -1,35 +1,71 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { StatusPulse } from "@/components/animations";
-import { generateAgentData, formatSecondsToMMSS, AgentStatus } from "./mockData";
+import { LoadingState } from "@/components/ui/loading-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Users } from "lucide-react";
+import type { LiveAgent } from "@/hooks/use-dashboard-events";
 
+type StatusVariant = "success" | "info" | "warning" | "default";
 
-const STATUS_VARIANTS: Record<AgentStatus["status"], "success" | "info" | "warning" | "default"> = {
+const STATUS_VARIANTS: Record<LiveAgent["status"], StatusVariant> = {
   "On Call": "success",
   Available: "info",
   Paused: "warning",
   Offline: "default",
 };
 
-export default function LiveAgentStatus() {
-  const initialAgents = useMemo(() => generateAgentData(), []);
-  const [agents, setAgents] = useState(initialAgents);
+function formatSecondsToMMSS(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+interface LiveAgentStatusProps {
+  agents: LiveAgent[];
+  isLoading?: boolean;
+  onAgentsChange?: (agents: LiveAgent[]) => void;
+}
+
+export default function LiveAgentStatus({
+  agents: externalAgents,
+  isLoading = false,
+  onAgentsChange,
+}: LiveAgentStatusProps) {
+  const [agents, setAgents] = useState<LiveAgent[]>(externalAgents);
+
+  // Sync when parent provides updated agents (e.g. initial load or WS reconnect)
+  useEffect(() => {
+    if (externalAgents.length > 0) {
+      setAgents(externalAgents);
+    }
+  }, [externalAgents]);
 
   // Tick seconds-on-call for active agents
   useEffect(() => {
     const interval = setInterval(() => {
-      setAgents((prev) =>
-        prev.map((a) =>
-          a.status === "On Call"
-            ? { ...a, secondsOnCall: a.secondsOnCall + 1 }
-            : a
-        )
-      );
+      setAgents((prev) => {
+        const next = prev.map((a) =>
+          a.status === "On Call" ? { ...a, secondsOnCall: a.secondsOnCall + 1 } : a
+        );
+        onAgentsChange?.(next);
+        return next;
+      });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [onAgentsChange]);
+
+  if (isLoading) return <LoadingState variant="skeleton-list" count={5} />;
+  if (!agents.length)
+    return (
+      <EmptyState
+        icon={Users}
+        title="No agents active"
+        description="Agent status will appear once voice agents are configured."
+      />
+    );
 
   const onCallCount = agents.filter((a) => a.status === "On Call").length;
   const availableCount = agents.filter((a) => a.status === "Available").length;

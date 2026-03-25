@@ -1,7 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StaggeredGrid, StaggeredItem, MotionCard, AnimatedCounter } from "@/components/animations";
+import { StaggeredGrid, StaggeredItem, MotionCard, AnimatedCounter, SkeletonToContent } from "@/components/animations";
+import { DashboardSkeleton } from "@/components/ui/page-skeletons";
+import { usePageLoading } from "@/hooks/use-page-loading";
 import {
   Phone,
   TrendingUp,
@@ -11,7 +14,10 @@ import {
   ArrowDownRight,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { kpiSparklineConfigs } from "@/components/dashboard/mockData";
+import { useDashboardKPIs, useLiveAgents } from "@/hooks/use-analytics";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { useDashboardEvents } from "@/hooks/use-dashboard-events";
+import type { SparklinePoint } from "@/components/dashboard/KPISparkline";
 
 const CallVolumeChart = dynamic(() => import("@/components/dashboard/CallVolumeChart"), { ssr: false });
 const ConversionFunnel = dynamic(() => import("@/components/dashboard/ConversionFunnel"), { ssr: false });
@@ -20,55 +26,93 @@ const LiveAgentStatus = dynamic(() => import("@/components/dashboard/LiveAgentSt
 const ActivityFeed = dynamic(() => import("@/components/dashboard/ActivityFeed"), { ssr: false });
 const CallVolumeHeatmap = dynamic(() => import("@/components/dashboard/CallVolumeHeatmap"), { ssr: false });
 
-const kpiCards = [
-  {
-    title: "Total Calls Today",
-    numericValue: 1284,
-    format: (n: number) => Math.round(n).toLocaleString(),
-    change: "+12.5%",
-    trend: "up" as const,
-    icon: Phone,
-    color: "text-blue-400",
-    sparklineColor: "#3b82f6",
-    sparklineIdx: 0,
-  },
-  {
-    title: "Conversion Rate",
-    numericValue: 23.8,
-    format: (n: number) => `${n.toFixed(1)}%`,
-    change: "+3.2%",
-    trend: "up" as const,
-    icon: TrendingUp,
-    color: "text-green-400",
-    sparklineColor: "#22c55e",
-    sparklineIdx: 1,
-  },
-  {
-    title: "Active Leads",
-    numericValue: 3427,
-    format: (n: number) => Math.round(n).toLocaleString(),
-    change: "-2.1%",
-    trend: "down" as const,
-    icon: Users,
-    color: "text-cyan-400",
-    sparklineColor: "#06b6d4",
-    sparklineIdx: 2,
-  },
-  {
-    title: "Revenue Pipeline",
-    numericValue: 847,
-    format: (n: number) => `$${Math.round(n)}K`,
-    change: "+18.7%",
-    trend: "up" as const,
-    icon: DollarSign,
-    color: "text-yellow-400",
-    sparklineColor: "#eab308",
-    sparklineIdx: 3,
-  },
-];
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function trendToSparkline(trend: number[] = []): SparklinePoint[] {
+  return trend.map((v, i) => ({ day: DAYS[i] ?? `D${i + 1}`, value: v }));
+}
+
+function fmtChange(n: number | undefined): string {
+  if (n == null) return "—";
+  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+}
 
 export default function DashboardPage() {
+  const loading = usePageLoading(800);
+  const { data: kpis } = useDashboardKPIs();
+  const { data: user } = useCurrentUser();
+  const { data: initialAgents, isLoading: agentsLoading } = useLiveAgents();
+
+  const orgId = user?.organization_id ?? null;
+  const { agents: wsAgents, activities, setAgents } = useDashboardEvents(orgId);
+
+  // Seed WS state from API once agents load; fall back to API data if WS hasn't received any yet
+  const agents = useMemo(() => {
+    if (wsAgents.length > 0) return wsAgents;
+    return initialAgents ?? [];
+  }, [wsAgents, initialAgents]);
+
+  useMemo(() => {
+    if (initialAgents?.length && wsAgents.length === 0) {
+      setAgents(initialAgents);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAgents]);
+
+  const callsSparkline = useMemo(() => trendToSparkline(kpis?.calls_trend), [kpis?.calls_trend]);
+  const conversionSparkline = useMemo(() => trendToSparkline(kpis?.conversion_trend), [kpis?.conversion_trend]);
+  const leadsSparkline = useMemo(() => trendToSparkline(kpis?.leads_trend), [kpis?.leads_trend]);
+  const revenueSparkline = useMemo(() => trendToSparkline(kpis?.revenue_trend), [kpis?.revenue_trend]);
+
+  const kpiCards = useMemo(() => [
+    {
+      title: "Total Calls Today",
+      numericValue: kpis?.total_calls ?? 0,
+      format: (n: number) => Math.round(n).toLocaleString(),
+      change: fmtChange(kpis?.calls_change),
+      trend: (kpis?.calls_change ?? 0) >= 0 ? ("up" as const) : ("down" as const),
+      icon: Phone,
+      color: "text-blue-400",
+      sparklineColor: "#3b82f6",
+      sparklineData: callsSparkline,
+    },
+    {
+      title: "Conversion Rate",
+      numericValue: kpis?.conversion_rate ?? 0,
+      format: (n: number) => `${n.toFixed(1)}%`,
+      change: fmtChange(kpis?.conversion_change),
+      trend: (kpis?.conversion_change ?? 0) >= 0 ? ("up" as const) : ("down" as const),
+      icon: TrendingUp,
+      color: "text-green-400",
+      sparklineColor: "#22c55e",
+      sparklineData: conversionSparkline,
+    },
+    {
+      title: "Active Leads",
+      numericValue: kpis?.active_leads ?? 0,
+      format: (n: number) => Math.round(n).toLocaleString(),
+      change: fmtChange(kpis?.leads_change),
+      trend: (kpis?.leads_change ?? 0) >= 0 ? ("up" as const) : ("down" as const),
+      icon: Users,
+      color: "text-cyan-400",
+      sparklineColor: "#06b6d4",
+      sparklineData: leadsSparkline,
+    },
+    {
+      title: "Revenue Pipeline",
+      numericValue: kpis?.revenue ? kpis.revenue / 1000 : 0,
+      format: (n: number) => `$${Math.round(n)}K`,
+      change: fmtChange(kpis?.revenue_change),
+      trend: (kpis?.revenue_change ?? 0) >= 0 ? ("up" as const) : ("down" as const),
+      icon: DollarSign,
+      color: "text-yellow-400",
+      sparklineColor: "#eab308",
+      sparklineData: revenueSparkline,
+    },
+  ], [kpis, callsSparkline, conversionSparkline, leadsSparkline, revenueSparkline]);
+
   return (
+    <SkeletonToContent loading={loading} skeleton={<DashboardSkeleton />}>
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
@@ -109,11 +153,7 @@ export default function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <KPISparkline
-                    baseValue={kpiSparklineConfigs[kpi.sparklineIdx].baseValue}
-                    color={kpi.sparklineColor}
-                    volatility={kpiSparklineConfigs[kpi.sparklineIdx].volatility}
-                  />
+                  <KPISparkline data={kpi.sparklineData} color={kpi.sparklineColor} />
                 </div>
               </div>
             </MotionCard>
@@ -159,7 +199,10 @@ export default function DashboardPage() {
             <CardTitle className="text-lg">Live Agent Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <LiveAgentStatus />
+            <LiveAgentStatus
+              agents={agents}
+              isLoading={agentsLoading && agents.length === 0}
+            />
           </CardContent>
         </Card>
 
@@ -168,7 +211,7 @@ export default function DashboardPage() {
             <CardTitle className="text-lg">Activity Feed</CardTitle>
           </CardHeader>
           <CardContent>
-            <ActivityFeed />
+            <ActivityFeed events={activities} />
           </CardContent>
         </Card>
       </div>
@@ -186,5 +229,6 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
     </div>
+    </SkeletonToContent>
   );
 }

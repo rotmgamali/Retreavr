@@ -109,8 +109,67 @@ export interface DashboardKPIs {
   conversion_rate: number
   avg_call_duration: number
   revenue: number
+  active_leads: number
+  // Day-over-day % change (e.g. 12.5 means +12.5%)
+  calls_change: number
+  conversion_change: number
+  leads_change: number
+  revenue_change: number
+  // 7-day trend arrays (raw values, same units as the metric)
   calls_trend: number[]
   conversion_trend: number[]
+  leads_trend: number[]
+  revenue_trend: number[]
+}
+
+export interface HeatmapCell {
+  hour: number
+  day: number
+  value: number
+}
+
+export interface LiveAgent {
+  id: string
+  name: string
+  status: 'On Call' | 'Available' | 'Paused' | 'Offline'
+  callsToday: number
+  secondsOnCall: number
+}
+
+export interface ConversionWeeklyRow {
+  week: string
+  calls: number
+  qualified: number
+  quoted: number
+  bound: number
+}
+
+export interface LeadSource {
+  name: string
+  value: number
+}
+
+export interface ABTestVariant {
+  name: string
+  convRate: number
+  calls: number
+}
+
+export interface ABTest {
+  id: string
+  name: string
+  status: 'running' | 'completed' | 'paused'
+  variantA: ABTestVariant
+  variantB: ABTestVariant
+  confidence: number
+}
+
+export interface CostRow {
+  month: string
+  apiCost: number
+  telephony: number
+  infra: number
+  revenue: number
 }
 
 export interface AgentPerformance {

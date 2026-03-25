@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { generateHeatmapData } from "./mockData";
+import { useHeatmapData } from "@/hooks/use-analytics";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LayoutGrid } from "lucide-react";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = Array.from({ length: 24 }, (_, i) =>
@@ -11,11 +15,9 @@ const HOURS = Array.from({ length: 24 }, (_, i) =>
 function getColor(value: number, max: number): string {
   if (value === 0) return "rgba(255,255,255,0.03)";
   const intensity = value / max;
-  // Blue (low) → Cyan (mid) → Blue bright (high)
   if (intensity < 0.33) {
     const t = intensity / 0.33;
-    const alpha = 0.15 + t * 0.25;
-    return `rgba(59, 130, 246, ${alpha})`;
+    return `rgba(59, 130, 246, ${0.15 + t * 0.25})`;
   } else if (intensity < 0.66) {
     const t = (intensity - 0.33) / 0.33;
     const r = Math.round(59 + t * (6 - 59));
@@ -24,22 +26,37 @@ function getColor(value: number, max: number): string {
     return `rgba(${r}, ${g}, ${b}, ${0.4 + t * 0.25})`;
   } else {
     const t = (intensity - 0.66) / 0.34;
-    const alpha = 0.65 + t * 0.35;
-    return `rgba(6, 182, 212, ${alpha})`;
+    return `rgba(6, 182, 212, ${0.65 + t * 0.35})`;
   }
 }
 
 export default function CallVolumeHeatmap() {
-  const cells = useMemo(() => generateHeatmapData(), []);
-  const maxValue = useMemo(() => Math.max(...cells.map((c) => c.value)), [cells]);
+  const { data: cells, isLoading, isError, refetch } = useHeatmapData();
+
+  const maxValue = useMemo(
+    () => (cells?.length ? Math.max(...cells.map((c) => c.value)) : 1),
+    [cells]
+  );
 
   const cellsByDayHour = useMemo(() => {
+    if (!cells) return {} as Record<string, number>;
     const map: Record<string, number> = {};
     cells.forEach((c) => {
       map[`${c.day}-${c.hour}`] = c.value;
     });
     return map;
   }, [cells]);
+
+  if (isLoading) return <LoadingState variant="skeleton-cards" count={1} className="h-40" />;
+  if (isError) return <ErrorState title="Failed to load heatmap" onRetry={() => refetch()} />;
+  if (!cells?.length)
+    return (
+      <EmptyState
+        icon={LayoutGrid}
+        title="No heatmap data"
+        description="Call volume heatmap will appear once data is available."
+      />
+    );
 
   return (
     <div className="w-full overflow-x-auto">
@@ -73,7 +90,6 @@ export default function CallVolumeHeatmap() {
                   style={{ background: bg, minWidth: 0 }}
                   title={`${day} ${HOURS[hourIdx]}: ${value} calls`}
                 >
-                  {/* Tooltip */}
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10 pointer-events-none">
                     <div className="rounded border border-white/10 bg-slate-900/95 px-2 py-1 text-[10px] text-white whitespace-nowrap shadow-lg">
                       {day} {HOURS[hourIdx]}: <span className="font-semibold">{value}</span>

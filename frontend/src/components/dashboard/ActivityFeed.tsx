@@ -1,21 +1,34 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
-import { generateActivityEvents, formatRelativeTime, ActivityEvent } from "./mockData";
+import { useEffect, useRef, useState } from "react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Activity } from "lucide-react";
+import type { DashboardActivityEvent } from "@/hooks/use-dashboard-events";
 
-const STATUS_DOT: Record<ActivityEvent["status"], string> = {
+const STATUS_DOT: Record<DashboardActivityEvent["status"], string> = {
   success: "bg-green-400",
   info: "bg-blue-400",
   warning: "bg-yellow-400",
   error: "bg-red-400",
 };
 
-export default function ActivityFeed() {
-  const initialEvents = useMemo(() => generateActivityEvents(), []);
-  const [events, setEvents] = useState(initialEvents);
-  const [, setTick] = useState(0); // force re-render for relative time updates
+function formatRelativeTime(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
+}
+
+interface ActivityFeedProps {
+  events: DashboardActivityEvent[];
+}
+
+export default function ActivityFeed({ events }: ActivityFeedProps) {
+  const [, setTick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
-  const isAtBottom = useRef(true);
 
   // Update relative timestamps every 30s
   useEffect(() => {
@@ -23,58 +36,32 @@ export default function ActivityFeed() {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulate new events arriving periodically
+  // Auto-scroll to top when new events arrive (feed is newest-first)
+  const prevLengthRef = useRef(events.length);
   useEffect(() => {
-    const newEventTemplates: Omit<ActivityEvent, "id" | "timestamp">[] = [
-      { event: "New lead qualified", agent: "Sarah AI", status: "success" },
-      { event: "Quote generated", agent: "Mike AI", status: "info" },
-      { event: "Policy bound", agent: "Alex AI", status: "success" },
-      { event: "Follow-up scheduled", agent: "Jordan AI", status: "info" },
-      { event: "Call transferred", agent: "Lisa AI", status: "warning" },
-    ];
-    let idx = 0;
-    const interval = setInterval(() => {
-      const template = newEventTemplates[idx % newEventTemplates.length];
-      idx++;
-      const newEvent: ActivityEvent = {
-        ...template,
-        id: `live-${Date.now()}`,
-        timestamp: new Date(),
-      };
-      setEvents((prev) => [newEvent, ...prev.slice(0, 19)]);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Track if user is scrolled to bottom
-  const handleScroll = () => {
-    const el = feedRef.current;
-    if (!el) return;
-    isAtBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  };
-
-  // Auto-scroll to top on new events (feed is newest-first)
-  useEffect(() => {
-    const el = feedRef.current;
-    if (el && isAtBottom.current) {
-      el.scrollTo({ top: 0, behavior: "smooth" });
+    if (events.length > prevLengthRef.current) {
+      feedRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     }
-  }, [events]);
+    prevLengthRef.current = events.length;
+  }, [events.length]);
+
+  if (!events.length)
+    return (
+      <EmptyState
+        icon={Activity}
+        title="No activity yet"
+        description="Real-time events will appear here as calls happen."
+      />
+    );
 
   return (
-    <div
-      ref={feedRef}
-      onScroll={handleScroll}
-      className="space-y-2 max-h-64 overflow-y-auto pr-1"
-    >
+    <div ref={feedRef} className="space-y-2 max-h-64 overflow-y-auto pr-1">
       {events.map((item) => (
         <div
           key={item.id}
           className="flex items-center gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/8 transition-colors"
         >
-          <span
-            className={`h-2 w-2 rounded-full flex-shrink-0 ${STATUS_DOT[item.status]}`}
-          />
+          <span className={`h-2 w-2 rounded-full flex-shrink-0 ${STATUS_DOT[item.status]}`} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{item.event}</p>
             <p className="text-xs text-muted-foreground">

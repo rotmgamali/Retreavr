@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import type { DashboardKPIs, AgentPerformance } from '@/lib/api-types'
+import type {
+  DashboardKPIs,
+  AgentPerformance,
+  HeatmapCell,
+  LiveAgent,
+  ConversionWeeklyRow,
+  LeadSource,
+  ABTest,
+  CostRow,
+} from '@/lib/api-types'
 
 export type { DashboardKPIs, AgentPerformance }
 
@@ -33,9 +42,58 @@ export function useCallVolume(period: 'hourly' | 'daily' | 'weekly' = 'daily') {
   return useQuery({
     queryKey: ['analytics', 'call-volume', period],
     queryFn: () =>
-      api.get<{ timestamp: string; count: number }[]>(
+      api.get<{ timestamp: string; count: number; answered?: number }[]>(
         `/analytics/call-volume?period=${period}`
       ),
     staleTime: 60_000,
+  })
+}
+
+export function useHeatmapData() {
+  return useQuery({
+    queryKey: ['analytics', 'heatmap'],
+    queryFn: () => api.get<HeatmapCell[]>('/analytics/heatmap'),
+    staleTime: 300_000,
+  })
+}
+
+export function useLiveAgents() {
+  return useQuery({
+    queryKey: ['analytics', 'live-agents'],
+    queryFn: () => api.get<LiveAgent[]>('/analytics/agents/live'),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  })
+}
+
+export function useConversionWeekly() {
+  return useQuery({
+    queryKey: ['analytics', 'conversion-weekly'],
+    queryFn: () => api.get<ConversionWeeklyRow[]>('/analytics/conversion-weekly'),
+    staleTime: 300_000,
+  })
+}
+
+export function useLeadSources() {
+  return useQuery({
+    queryKey: ['analytics', 'lead-sources'],
+    queryFn: () => api.get<LeadSource[]>('/analytics/lead-sources'),
+    staleTime: 300_000,
+  })
+}
+
+export function useABTests() {
+  return useQuery({
+    queryKey: ['analytics', 'ab-tests'],
+    queryFn: () => api.get<ABTest[]>('/analytics/ab-tests'),
+    staleTime: 300_000,
+  })
+}
+
+export function useCostAnalytics() {
+  return useQuery({
+    queryKey: ['analytics', 'costs'],
+    queryFn: () => api.get<CostRow[]>('/analytics/costs'),
+    staleTime: 300_000,
   })
 }

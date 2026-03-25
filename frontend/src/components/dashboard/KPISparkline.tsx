@@ -1,24 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { generateSparklineData } from "./mockData";
 
-interface KPISparklineProps {
-  baseValue: number;
-  color?: string;
-  volatility?: number;
+export interface SparklinePoint {
+  day: string;
+  value: number;
 }
 
-export default function KPISparkline({
-  baseValue,
-  color = "#3b82f6",
-  volatility = 0.12,
-}: KPISparklineProps) {
-  const data = useMemo(
-    () => generateSparklineData(baseValue, volatility),
-    [baseValue, volatility]
-  );
+interface KPISparklineProps {
+  data: SparklinePoint[];
+  color?: string;
+}
+
+export default function KPISparkline({ data, color = "#3b82f6" }: KPISparklineProps) {
+  if (!data.length) return <div className="h-10 w-24" />;
 
   return (
     <div className="h-10 w-24">

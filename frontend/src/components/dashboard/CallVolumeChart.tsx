@@ -10,7 +10,11 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { generateCallVolumeData } from "./mockData";
+import { useCallVolume } from "@/hooks/use-analytics";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { BarChart2 } from "lucide-react";
 
 interface TooltipPayload {
   value: number;
@@ -40,8 +44,29 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
+function hourLabel(timestamp: string): string {
+  const h = new Date(timestamp).getHours();
+  if (h === 0) return "12am";
+  if (h < 12) return `${h}am`;
+  if (h === 12) return "12pm";
+  return `${h - 12}pm`;
+}
+
 export default function CallVolumeChart() {
-  const data = useMemo(() => generateCallVolumeData(), []);
+  const { data: raw, isLoading, isError, refetch } = useCallVolume("hourly");
+
+  const data = useMemo(() => {
+    if (!raw?.length) return [];
+    return raw.map((d) => ({
+      hour: hourLabel(d.timestamp),
+      calls: d.count,
+      answered: d.answered ?? Math.round(d.count * 0.87),
+    }));
+  }, [raw]);
+
+  if (isLoading) return <LoadingState variant="skeleton-cards" count={1} className="h-64" />;
+  if (isError) return <ErrorState title="Failed to load call volume" onRetry={() => refetch()} />;
+  if (!data.length) return <EmptyState icon={BarChart2} title="No call data yet" description="Call volume will appear once calls are recorded." />;
 
   return (
     <div className="h-64 w-full">
