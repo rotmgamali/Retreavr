@@ -104,16 +104,24 @@ async def upload_document(
     db.add(doc_record)
     await db.flush()  # obtain doc_record.id before ingestion
 
-    # 3. Chunk + embed + store in pgvector
-    embedded_chunks = await ingest_document(
-        session=db,
-        document=parsed,
-        document_id=doc_record.id,
-    )
+    try:
+        # 3. Chunk + embed + store in pgvector
+        embedded_chunks = await ingest_document(
+            session=db,
+            document=parsed,
+            document_id=doc_record.id,
+        )
 
-    # 4. Mark document ready
-    doc_record.status = DocumentStatus.ready
-    await db.flush()
+        # 4. Mark document ready
+        doc_record.status = DocumentStatus.ready
+        await db.flush()
+    except Exception as exc:
+        doc_record.status = DocumentStatus.failed
+        await db.flush()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Ingestion pipeline failed: {exc}",
+        ) from exc
 
     total_tokens = sum(ec.chunk.token_count for ec in embedded_chunks)
 

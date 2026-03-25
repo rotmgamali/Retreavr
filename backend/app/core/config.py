@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimensions: int = 1536
+
+    # RAG
+    chunk_size: int = 512
+    chunk_overlap: int = 50
+    retrieval_top_k: int = 5
+    retrieval_similarity_threshold: float = 0.7
 
     # S3/R2 Storage
     s3_bucket_name: str = "retrevr-recordings"
