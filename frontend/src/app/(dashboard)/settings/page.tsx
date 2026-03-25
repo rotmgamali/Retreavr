@@ -1,6 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { SkeletonToContent } from '@/components/animations';
+import { SettingsSkeleton } from '@/components/ui/page-skeletons';
+import { usePageLoading } from '@/hooks/use-page-loading';
+import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration } from '@/hooks/use-settings';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -114,11 +118,29 @@ function ToggleRow({ label, description, checked, onCheckedChange }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const loading = usePageLoading(700)
   // ── Integrations ──
+  const updateIntegrationMutation = useUpdateIntegration();
   const [integrations, setIntegrations] = useState<Integration[]>(INITIAL_INTEGRATIONS);
 
-  // ── Team ──
-  const [team, setTeam] = useState<TeamMember[]>(INITIAL_TEAM);
+  // ── Team (real API) ──
+  const { data: apiTeam } = useTeamMembers();
+  const addTeamMemberMutation = useAddTeamMember();
+  const updateTeamMemberMutation = useUpdateTeamMember();
+
+  // Map API team members to local type; fall back to INITIAL_TEAM while loading
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const team: TeamMember[] = (apiTeam
+    ? apiTeam.map(m => ({
+        id: m.id,
+        name: `${m.first_name} ${m.last_name}`.trim() || m.email,
+        email: m.email,
+        role: m.role,
+        status: 'active' as const,
+      }))
+    : INITIAL_TEAM
+  ).filter(m => !removedIds.includes(m.id));
+
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('agent');
@@ -150,30 +172,39 @@ export default function SettingsPage() {
 
   // ── Handlers ──
   const toggleIntegration = (id: string) => {
+    const integration = integrations.find(i => i.id === id);
+    const newConnected = !integration?.connected;
     setIntegrations(prev => prev.map(i =>
-      i.id === id ? { ...i, connected: !i.connected, lastSynced: !i.connected ? 'just now' : undefined } : i
+      i.id === id ? { ...i, connected: newConnected, lastSynced: newConnected ? 'just now' : undefined } : i
     ));
+    updateIntegrationMutation.mutate({ id, updates: { connected: newConnected } });
   };
 
-  const sendInvite = () => {
+  const sendInvite = async () => {
     if (!inviteEmail) return;
-    const newMember: TeamMember = {
-      id: Date.now().toString(), name: inviteEmail.split('@')[0], email: inviteEmail, role: inviteRole, status: 'invited',
-    };
-    setTeam(prev => [...prev, newMember]);
+    const namePart = inviteEmail.split('@')[0];
+    await addTeamMemberMutation.mutateAsync({
+      email: inviteEmail,
+      first_name: namePart,
+      last_name: '',
+      role: inviteRole,
+    });
     setInviteEmail('');
     setInviteRole('agent');
     setShowInvite(false);
     showToast('Invitation sent successfully');
   };
 
-  const removeMember = (id: string) => setTeam(prev => prev.filter(m => m.id !== id));
+  const removeMember = (id: string) => {
+    setRemovedIds(prev => [...prev, id]);
+  };
 
   const updateMemberRole = (id: string, role: string) => {
-    setTeam(prev => prev.map(m => m.id === id ? { ...m, role } : m));
+    updateTeamMemberMutation.mutate({ id, updates: { role } });
   };
 
   return (
+    <SkeletonToContent loading={loading} skeleton={<SettingsSkeleton />}>
     <div className="space-y-6 pb-10">
       {/* Header */}
       <div>
@@ -508,5 +539,6 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </div>
+    </SkeletonToContent>
   );
 }

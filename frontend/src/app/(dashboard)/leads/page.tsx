@@ -1,6 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { SkeletonToContent } from '@/components/animations'
+import { LeadsSkeleton } from '@/components/ui/page-skeletons'
+import { usePageLoading } from '@/hooks/use-page-loading'
+import { useLeads, useCreateLead, useUpdateLead, useDeleteLead } from '@/hooks/use-leads'
+import type { LeadApi } from '@/hooks/use-leads'
 import { GripVertical, Phone, Mail, Calendar, MoreHorizontal, Plus, Search, Filter, DollarSign, User, Clock } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,6 +43,26 @@ interface Lead {
 }
 
 type Stage = 'new' | 'contacted' | 'qualified' | 'quoted' | 'bound' | 'lost'
+
+// ── API mapper ───────────────────────────────────────────────────────────────
+
+function apiToUiLead(lead: LeadApi): Lead {
+  const meta = (lead.metadata ?? {}) as Record<string, unknown>
+  return {
+    id: lead.id,
+    name: `${lead.first_name} ${lead.last_name}`.trim(),
+    email: lead.email,
+    phone: lead.phone,
+    company: meta.company as string | undefined,
+    insuranceType: lead.insurance_type,
+    estimatedPremium: (meta.estimated_premium as number) ?? 0,
+    source: (meta.source as string) ?? 'Unknown',
+    assignedAgent: (meta.assigned_agent as string) ?? '—',
+    lastContact: meta.last_contact as string | undefined,
+    notes: meta.notes as string | undefined,
+    stage: lead.status as Stage,
+  }
+}
 
 // ── Column config ────────────────────────────────────────────────────────────
 
@@ -390,7 +415,14 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LeadPipelinePage() {
-  const [leads, setLeads] = useState<Lead[]>(SEED_LEADS)
+  const loading = usePageLoading(700)
+  const { data: leadsData } = useLeads()
+  const createLead = useCreateLead()
+  const updateLead = useUpdateLead()
+  const deleteLead = useDeleteLead()
+
+  const leads: Lead[] = (leadsData?.items ?? []).map(apiToUiLead)
+
   const [dragOverColumn, setDragOverColumn] = useState<Stage | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
@@ -422,22 +454,66 @@ export default function LeadPipelinePage() {
   const handleDrop = (e: React.DragEvent, stage: Stage) => {
     e.preventDefault()
     const leadId = e.dataTransfer.getData('text/plain')
-    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, stage } : l))
     setDragOverColumn(null)
+    updateLead.mutate({ id: leadId, updates: { status: stage } })
   }
 
-  const handleAddLead = (lead: Lead) => setLeads(prev => [lead, ...prev])
-  const handleUpdateLead = (updated: Lead) => {
-    setLeads(prev => prev.map(l => l.id === updated.id ? updated : l))
-    setSelectedLead(updated)
+  const handleAddLead = async (lead: Lead) => {
+    const parts = lead.name.trim().split(' ')
+    const first_name = parts[0] ?? ''
+    const last_name = parts.slice(1).join(' ') || first_name
+    await createLead.mutateAsync({
+      first_name,
+      last_name,
+      email: lead.email,
+      phone: lead.phone,
+      insurance_type: lead.insuranceType,
+      status: lead.stage,
+      metadata: {
+        company: lead.company,
+        estimated_premium: lead.estimatedPremium,
+        source: lead.source,
+        assigned_agent: lead.assignedAgent,
+        notes: lead.notes,
+      },
+    })
   }
-  const handleDeleteLead = (id: string) => setLeads(prev => prev.filter(l => l.id !== id))
+
+  const handleUpdateLead = async (updated: Lead) => {
+    setSelectedLead(updated)
+    const parts = updated.name.trim().split(' ')
+    const first_name = parts[0] ?? ''
+    const last_name = parts.slice(1).join(' ') || first_name
+    await updateLead.mutateAsync({
+      id: updated.id,
+      updates: {
+        first_name,
+        last_name,
+        email: updated.email,
+        phone: updated.phone,
+        insurance_type: updated.insuranceType,
+        status: updated.stage,
+        metadata: {
+          company: updated.company,
+          estimated_premium: updated.estimatedPremium,
+          source: updated.source,
+          assigned_agent: updated.assignedAgent,
+          notes: updated.notes,
+        },
+      },
+    })
+  }
+
+  const handleDeleteLead = async (id: string) => {
+    await deleteLead.mutateAsync(id)
+  }
 
   // Stats
   const totalPipeline = leads.reduce((s, l) => s + l.estimatedPremium, 0)
   const boundPremium = leads.filter(l => l.stage === 'bound').reduce((s, l) => s + l.estimatedPremium, 0)
 
   return (
+    <SkeletonToContent loading={loading} skeleton={<LeadsSkeleton />}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -530,5 +606,6 @@ export default function LeadPipelinePage() {
         onDelete={handleDeleteLead}
       />
     </div>
+    </SkeletonToContent>
   )
 }

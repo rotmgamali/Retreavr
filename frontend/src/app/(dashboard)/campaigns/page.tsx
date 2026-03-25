@@ -1,14 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { SkeletonToContent } from '@/components/animations'
+import { CampaignsSkeleton } from '@/components/ui/page-skeletons'
+import { usePageLoading } from '@/hooks/use-page-loading'
 import { Plus, TrendingUp, Users, Phone, BarChart2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CampaignWizard, type CampaignFormData } from '@/components/forms/campaign-wizard'
+import { useCampaigns, useCreateCampaign } from '@/hooks/use-campaigns'
+import type { CampaignApi } from '@/hooks/use-campaigns'
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
+// ─── Types & mappers ──────────────────────────────────────────────────────────
 
 interface Campaign {
   id: string
@@ -22,41 +27,20 @@ interface Campaign {
   converted: number
 }
 
-const MOCK_CAMPAIGNS: Campaign[] = [
-  {
-    id: '1',
-    name: 'Q2 Auto Renewal Blitz',
-    type: 'renewal',
-    status: 'active',
-    startDate: '2026-04-01',
-    endDate: '2026-04-30',
-    totalLeads: 1240,
-    contacted: 847,
-    converted: 163,
-  },
-  {
-    id: '2',
-    name: 'Home Insurance Cold Outreach',
-    type: 'outbound',
-    status: 'paused',
-    startDate: '2026-03-10',
-    endDate: '2026-03-31',
-    totalLeads: 600,
-    contacted: 388,
-    converted: 42,
-  },
-  {
-    id: '3',
-    name: 'Claims Follow-up May',
-    type: 'follow-up',
-    status: 'draft',
-    startDate: '2026-05-01',
-    endDate: '2026-05-15',
-    totalLeads: 320,
-    contacted: 0,
-    converted: 0,
-  },
-]
+function apiToUiCampaign(c: CampaignApi): Campaign {
+  const cfg = (c.config ?? {}) as Record<string, unknown>
+  return {
+    id: c.id,
+    name: c.name,
+    type: (cfg.wizard_type as Campaign['type']) ?? 'outbound',
+    status: (c.status === 'cancelled' ? 'completed' : c.status) as Campaign['status'],
+    startDate: (cfg.start_date as string) ?? '',
+    endDate: (cfg.end_date as string) ?? '',
+    totalLeads: (cfg.target_leads as number) ?? 0,
+    contacted: (cfg.contacted as number) ?? 0,
+    converted: (cfg.converted as number) ?? 0,
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -241,9 +225,14 @@ function SummaryCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CampaignsPage() {
+  const loading = usePageLoading(700)
   const [wizardOpen, setWizardOpen] = useState(false)
-  const [campaigns, setCampaigns] = useState<Campaign[]>(MOCK_CAMPAIGNS)
   const [analyticsCampaign, setAnalyticsCampaign] = useState<Campaign | null>(null)
+
+  const { data: campaignsData } = useCampaigns()
+  const createCampaign = useCreateCampaign()
+
+  const campaigns: Campaign[] = (campaignsData?.items ?? []).map(apiToUiCampaign)
 
   const totalLeads = campaigns.reduce((s, c) => s + c.totalLeads, 0)
   const totalContacted = campaigns.reduce((s, c) => s + c.contacted, 0)
@@ -251,40 +240,54 @@ export default function CampaignsPage() {
   const overallRate =
     totalContacted > 0 ? `${((totalConverted / totalContacted) * 100).toFixed(1)}%` : '0%'
 
-  const handleLaunch = (data: CampaignFormData) => {
-    const newCampaign: Campaign = {
-      id: String(Date.now()),
+  const handleLaunch = async (data: CampaignFormData) => {
+    await createCampaign.mutateAsync({
       name: data.name,
-      type: data.type,
+      type: 'outbound_call',
       status: 'active',
-      startDate: data.startDate,
-      endDate: data.endDate,
-      totalLeads: data.targetLeads,
-      contacted: 0,
-      converted: 0,
-    }
-    setCampaigns(prev => [newCampaign, ...prev])
+      config: {
+        wizard_type: data.type,
+        start_date: data.startDate,
+        end_date: data.endDate,
+        target_leads: data.targetLeads,
+        audience_segments: data.audienceSegments,
+        exclude_existing: data.excludeExisting,
+        agent_id: data.agentId,
+        custom_greeting: data.customGreeting,
+        max_attempts: data.maxAttempts,
+        call_hours_start: data.callHoursStart,
+        call_hours_end: data.callHoursEnd,
+        call_days: data.callDays,
+        max_calls_per_hour: data.maxCallsPerHour,
+        max_calls_per_day: data.maxCallsPerDay,
+        timezone: data.timezone,
+        contacted: 0,
+        converted: 0,
+      },
+    })
     setWizardOpen(false)
   }
 
-  const handleSaveDraft = (data: Partial<CampaignFormData>) => {
+  const handleSaveDraft = async (data: Partial<CampaignFormData>) => {
     if (!data.name) return
-    const draft: Campaign = {
-      id: String(Date.now()),
+    await createCampaign.mutateAsync({
       name: data.name,
-      type: data.type ?? 'outbound',
+      type: 'outbound_call',
       status: 'draft',
-      startDate: data.startDate ?? '',
-      endDate: data.endDate ?? '',
-      totalLeads: data.targetLeads ?? 0,
-      contacted: 0,
-      converted: 0,
-    }
-    setCampaigns(prev => [draft, ...prev])
+      config: {
+        wizard_type: data.type ?? 'outbound',
+        start_date: data.startDate ?? '',
+        end_date: data.endDate ?? '',
+        target_leads: data.targetLeads ?? 0,
+        contacted: 0,
+        converted: 0,
+      },
+    })
     setWizardOpen(false)
   }
 
   return (
+    <SkeletonToContent loading={loading} skeleton={<CampaignsSkeleton />}>
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
@@ -416,5 +419,6 @@ export default function CampaignsPage() {
         onSaveDraft={handleSaveDraft}
       />
     </div>
+    </SkeletonToContent>
   )
 }
