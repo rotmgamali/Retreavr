@@ -83,12 +83,14 @@ export default function VoiceAgentsPage() {
 
   const handleSave = async (data: Partial<VoiceAgent>) => {
     const merged = selectedAgent ? { ...selectedAgent, ...data } : data
+    const mappedStatus: 'active' | 'inactive' | 'draft' | undefined =
+      merged.status === 'training' ? 'draft' : merged.status === 'active' ? 'active' : merged.status === 'inactive' ? 'inactive' : undefined
     const apiPayload = {
       name: merged.name ?? 'New Agent',
       persona: merged.persona ?? '',
       system_prompt: merged.systemPrompt ?? '',
       voice: merged.voice,
-      status: (merged.status === 'training' ? 'draft' : merged.status) as string | undefined,
+      status: mappedStatus,
       vad_config: {
         threshold: merged.vadThreshold,
         max_call_duration: merged.maxCallDuration,

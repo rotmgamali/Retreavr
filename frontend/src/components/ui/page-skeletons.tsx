@@ -219,7 +219,7 @@ export function CallHistorySkeleton() {
         {/* Header row */}
         <div className="flex items-center gap-4 px-4 py-3 border-b border-white/10">
           {[32, 28, 16, 12, 12].map((w, i) => (
-            <Skeleton key={i} className={`h-3 w-${w}`} style={{ width: `${w * 4}px` }} />
+            <Skeleton key={i} className={`h-3`} />
           ))}
         </div>
         {/* Data rows */}
@@ -299,8 +299,7 @@ export function CallCenterSkeleton() {
                 {Array.from({ length: 30 }).map((_, j) => (
                   <Skeleton
                     key={j}
-                    className="flex-1 rounded-full"
-                    style={{ height: `${20 + Math.sin(j * 0.8) * 15 + Math.random() * 10}px` }}
+                    className={`flex-1 rounded-full h-6`}
                   />
                 ))}
               </div>

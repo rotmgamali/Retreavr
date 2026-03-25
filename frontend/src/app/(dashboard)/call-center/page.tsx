@@ -1,13 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { SkeletonToContent } from '@/components/animations'
 import { CallCenterSkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
-import { Phone, PhoneOff, Ear, MessageSquare, Hand, Clock, Wifi, WifiOff, Users } from 'lucide-react'
+import { Phone, PhoneOff, Ear, MessageSquare, Hand, Clock, Wifi, WifiOff, Users, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { OutboundDialer } from '@/components/voice/outbound-dialer'
+import { IncomingCallModal } from '@/components/voice/incoming-call-modal'
+import { CallSummaryPanel } from '@/components/voice/call-summary-panel'
+import { useVoiceCall } from '@/hooks/use-voice-call'
+import { useAgents } from '@/hooks/use-agents'
+import { useCallHistory } from '@/hooks/use-call-history'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,7 +24,7 @@ interface ActiveCall {
   callerPhone: string
   agent: string
   status: 'ringing' | 'connected' | 'on-hold'
-  duration: number // seconds
+  duration: number
   sentiment: 'positive' | 'neutral' | 'negative'
   topic: string
   waveform: number[]
@@ -27,12 +34,12 @@ interface QueueItem {
   id: string
   callerName: string
   callerPhone: string
-  waitTime: number // seconds
+  waitTime: number
   priority: 'high' | 'medium' | 'low'
   reason: string
 }
 
-// ── Mock data ────────────────────────────────────────────────────────────────
+// ── Mock data (augmented by real API data when available) ─────────────────────
 
 const INITIAL_CALLS: ActiveCall[] = [
   {
@@ -105,14 +112,18 @@ function Waveform({ data, active }: { data: number[]; active: boolean }) {
   return (
     <div className="flex items-center gap-[2px] h-8">
       {data.map((v, i) => (
-        <div
+        <motion.div
           key={i}
-          className={`w-[3px] rounded-full transition-all ${
+          className={`w-[3px] rounded-full ${
             active ? 'bg-blue-400/70' : 'bg-slate-600/40'
           }`}
-          style={{
+          animate={{
             height: `${Math.max(4, v * 32)}px`,
-            animationDelay: active ? `${i * 50}ms` : undefined,
+          }}
+          transition={{
+            type: 'spring',
+            stiffness: 300,
+            damping: 20,
           }}
         />
       ))}
@@ -127,7 +138,13 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
   const sentiment = SENTIMENT_CONFIG[call.sentiment]
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 hover:border-white/20 transition-colors">
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="rounded-lg border border-white/10 bg-white/[0.03] p-4 hover:border-white/20 transition-colors"
+    >
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="flex items-center gap-2">
@@ -160,7 +177,6 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
 
       <p className="text-xs text-slate-500 mb-3">{call.topic}</p>
 
-      {/* Action buttons */}
       <div className="flex gap-1.5 pt-2 border-t border-white/5">
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 flex-1">
           <Ear className="h-3 w-3" />
@@ -178,7 +194,7 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
           <PhoneOff className="h-3 w-3" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -189,6 +205,36 @@ export default function CallCenterPage() {
   const [calls] = useState<ActiveCall[]>(INITIAL_CALLS)
   const [queue] = useState<QueueItem[]>(INITIAL_QUEUE)
   const [durations, setDurations] = useState<Record<string, number>>({})
+  const [showDialer, setShowDialer] = useState(false)
+  const [incomingCall, setIncomingCall] = useState<{
+    open: boolean
+    callerName: string
+    callerPhone: string
+    leadStatus?: string
+  }>({ open: false, callerName: '', callerPhone: '' })
+
+  const voiceCall = useVoiceCall()
+  const { data: agentsData } = useAgents({ limit: 50 })
+  const { data: callHistoryData } = useCallHistory({ limit: 10 })
+
+  // Map agent data for dialer — cast status from API union to component union
+  const agentOptions = (agentsData?.items ?? [])
+    .filter(a => a.status !== 'training')
+    .map(a => ({
+      id: a.id,
+      name: a.name,
+      voice: a.voice,
+      status: a.status as 'active' | 'inactive' | 'draft',
+    })) satisfies { id: string; name: string; voice: string; status: 'active' | 'inactive' | 'draft' }[]
+
+  // Map recent calls for dialer
+  const recentCalls = (callHistoryData?.items ?? []).map(c => ({
+    id: c.id,
+    contactName: c.phone_to ?? 'Unknown',
+    phone: c.phone_to ?? '',
+    timestamp: c.created_at,
+    duration: c.duration ?? 0,
+  }))
 
   // Simulate live timer
   useEffect(() => {
@@ -208,6 +254,19 @@ export default function CallCenterPage() {
     return () => clearInterval(interval)
   }, [calls])
 
+  const handleDial = useCallback((phoneNumber: string, agentId: string) => {
+    voiceCall.startCall(phoneNumber, agentId, { direction: 'outbound' })
+    setShowDialer(false)
+  }, [voiceCall])
+
+  const handleAcceptIncoming = useCallback(() => {
+    setIncomingCall(prev => ({ ...prev, open: false }))
+  }, [])
+
+  const handleDeclineIncoming = useCallback(() => {
+    setIncomingCall(prev => ({ ...prev, open: false }))
+  }, [])
+
   const activeCalls = calls.filter(c => c.status === 'connected').length
   const totalCalls = calls.length
 
@@ -215,9 +274,18 @@ export default function CallCenterPage() {
     <SkeletonToContent loading={loading} skeleton={<CallCenterSkeleton />}>
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Call Center</h1>
-        <p className="text-muted-foreground mt-1">Live call monitoring with listen-in, whisper, and takeover</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Call Center</h1>
+          <p className="text-muted-foreground mt-1">Live call monitoring with listen-in, whisper, and takeover</p>
+        </div>
+        <Button
+          onClick={() => setShowDialer(!showDialer)}
+          className="bg-blue-600 hover:bg-blue-500 text-white gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          New Call
+        </Button>
       </div>
 
       {/* Stats bar */}
@@ -245,11 +313,60 @@ export default function CallCenterPage() {
           </div>
           <span className="text-muted-foreground">in queue</span>
         </div>
+        {voiceCall.callState !== 'idle' && (
+          <>
+            <div className="text-white/10">|</div>
+            <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-1.5 text-purple-400">
+                <Phone className="h-4 w-4" />
+                <span className="font-semibold capitalize">{voiceCall.callState}</span>
+              </div>
+              <span className="text-muted-foreground">your call</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Active calls grid */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Outbound Dialer (expandable) */}
+          <AnimatePresence>
+            {showDialer && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="overflow-hidden"
+              >
+                <OutboundDialer
+                  agents={agentOptions}
+                  recentCalls={recentCalls}
+                  isLoading={voiceCall.callState === 'connecting'}
+                  onDial={handleDial}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Call summary after call ends */}
+          <AnimatePresence>
+            {voiceCall.callState === 'ended' && voiceCall.callSummary && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+              >
+                <CallSummaryPanel
+                  summary={voiceCall.callSummary}
+                  onClose={() => voiceCall.resetCall()}
+                  onSaveNotes={() => {}}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <Card className="glass-card">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -259,12 +376,14 @@ export default function CallCenterPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
-                {calls.map(call => (
-                  <ActiveCallCard
-                    key={call.id}
-                    call={{ ...call, duration: durations[call.id] ?? call.duration }}
-                  />
-                ))}
+                <AnimatePresence>
+                  {calls.map(call => (
+                    <ActiveCallCard
+                      key={call.id}
+                      call={{ ...call, duration: durations[call.id] ?? call.duration }}
+                    />
+                  ))}
+                </AnimatePresence>
               </div>
             </CardContent>
           </Card>
@@ -280,33 +399,39 @@ export default function CallCenterPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {queue.map(item => (
-                <div
-                  key={item.id}
-                  className="rounded-lg border border-white/10 bg-white/[0.03] p-3"
-                >
-                  <div className="flex items-start justify-between mb-1.5">
-                    <div>
-                      <p className="text-sm font-medium">{item.callerName}</p>
-                      <p className="text-xs text-slate-500">{item.callerPhone}</p>
+              <AnimatePresence>
+                {queue.map(item => (
+                  <motion.div
+                    key={item.id}
+                    layout
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    className="rounded-lg border border-white/10 bg-white/[0.03] p-3"
+                  >
+                    <div className="flex items-start justify-between mb-1.5">
+                      <div>
+                        <p className="text-sm font-medium">{item.callerName}</p>
+                        <p className="text-xs text-slate-500">{item.callerPhone}</p>
+                      </div>
+                      <Badge variant={PRIORITY_CONFIG[item.priority].badge} className="text-[10px] capitalize">
+                        {item.priority}
+                      </Badge>
                     </div>
-                    <Badge variant={PRIORITY_CONFIG[item.priority].badge} className="text-[10px] capitalize">
-                      {item.priority}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-2">{item.reason}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Waiting {formatDuration(item.waitTime)}
-                    </span>
-                    <Button size="sm" className="h-6 px-2 text-[10px] bg-green-600 hover:bg-green-500">
-                      <Phone className="h-3 w-3 mr-1" />
-                      Pick Up
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                    <p className="text-xs text-slate-400 mb-2">{item.reason}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        Waiting {formatDuration(item.waitTime)}
+                      </span>
+                      <Button size="sm" className="h-6 px-2 text-[10px] bg-green-600 hover:bg-green-500">
+                        <Phone className="h-3 w-3 mr-1" />
+                        Pick Up
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
 
               {queue.length === 0 && (
                 <div className="flex flex-col items-center py-8 text-center">
@@ -344,6 +469,16 @@ export default function CallCenterPage() {
         </div>
       </div>
     </div>
+
+    {/* Incoming call modal */}
+    <IncomingCallModal
+      open={incomingCall.open}
+      callerName={incomingCall.callerName}
+      callerPhone={incomingCall.callerPhone}
+      leadStatus={incomingCall.leadStatus}
+      onAccept={handleAcceptIncoming}
+      onDecline={handleDeclineIncoming}
+    />
     </SkeletonToContent>
   )
 }

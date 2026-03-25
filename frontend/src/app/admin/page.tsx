@@ -214,7 +214,7 @@ export default function AdminDashboardPage() {
                   <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 10, fill: "rgba(255,255,255,0.4)" }} />
                   <Tooltip
                     contentStyle={{ background: "#1e1b4b", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, color: "#e0e7ff" }}
-                    labelFormatter={(v: string) => new Date(v).toLocaleDateString()}
+                    labelFormatter={(v) => new Date(String(v)).toLocaleDateString()}
                   />
                   <Area type="monotone" dataKey="calls" stroke="#6366f1" fill="url(#callGradient)" strokeWidth={2} />
                 </AreaChart>
