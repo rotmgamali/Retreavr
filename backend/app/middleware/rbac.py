@@ -26,7 +26,7 @@ def assert_same_org(user: User, resource_org_id) -> None:
     """Raise HTTP 403 if the user's org doesn't match the resource org (unless superadmin)."""
     if user.role == UserRole.superadmin:
         return
-    if str(user.org_id) != str(resource_org_id):
+    if str(user.organization_id) != str(resource_org_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: resource belongs to a different organization",
