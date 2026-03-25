@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
       organization_id: user.organization_id,
     },
     access_token: accessToken,
+    refresh_token: refreshToken,
   });
 
   setAuthCookies(response, accessToken, refreshToken);

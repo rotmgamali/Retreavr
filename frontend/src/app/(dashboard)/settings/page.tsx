@@ -5,10 +5,6 @@ import { SkeletonToContent } from '@/components/animations';
 import { SettingsSkeleton } from '@/components/ui/page-skeletons';
 import { usePageLoading } from '@/hooks/use-page-loading';
 import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations } from '@/hooks/use-settings';
-import { LoadingState } from '@/components/ui/loading-state';
-import { ErrorState } from '@/components/ui/error-state';
-import { EmptyState } from '@/components/ui/empty-state';
-import { Link2 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +17,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+
+import { Loader2, AlertTriangle, Link2 } from 'lucide-react';
+
+// ─── Inline state components ─────────────────────────────────────────────────
+
+function LoadingState({ variant: _v, count: _c }: { variant?: string; count?: number }) {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
+      <span className="ml-2 text-sm text-slate-400">Loading...</span>
+    </div>
+  );
+}
+
+function ErrorState({ title, onRetry }: { title: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <AlertTriangle className="h-8 w-8 text-red-400 mb-2" />
+      <p className="text-sm text-slate-300">{title}</p>
+      {onRetry && (
+        <button onClick={onRetry} className="mt-2 text-xs text-blue-400 hover:underline">Retry</button>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, description }: { icon?: React.ElementType; title: string; description: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      {Icon && <Icon className="h-8 w-8 text-slate-500 mb-2" />}
+      <p className="text-sm font-medium text-slate-300">{title}</p>
+      <p className="text-xs text-slate-500 mt-1">{description}</p>
+    </div>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -115,10 +146,10 @@ function ToggleRow({ label, description, checked, onCheckedChange }: {
 export default function SettingsPage() {
   const loading = usePageLoading(700)
   // ── Integrations (real API) ──
-  const { data: apiIntegrations, isLoading: integrationsLoading, isError: integrationsError, refetch: refetchIntegrations } = useIntegrations();
+  const integrationsQuery = useIntegrations();
   const updateIntegrationMutation = useUpdateIntegration();
 
-  const integrations: Integration[] = (apiIntegrations ?? []).map(i => ({
+  const integrations: Integration[] = (integrationsQuery.data ?? []).map(i => ({
     id: i.id,
     name: i.name,
     provider: i.provider,
@@ -127,12 +158,12 @@ export default function SettingsPage() {
   }));
 
   // ── Team (real API) ──
-  const { data: apiTeam, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeamMembers();
+  const teamQuery = useTeamMembers();
   const addTeamMemberMutation = useAddTeamMember();
   const updateTeamMemberMutation = useUpdateTeamMember();
 
   const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const team: TeamMember[] = (apiTeam ?? [])
+  const team: TeamMember[] = (teamQuery.data ?? [])
     .map(m => ({
       id: m.id,
       name: `${m.first_name} ${m.last_name}`.trim() || m.email,
@@ -175,10 +206,7 @@ export default function SettingsPage() {
   const toggleIntegration = (id: string) => {
     const integration = integrations.find(i => i.id === id);
     const newConnected = !integration?.connected;
-    setIntegrations(prev => prev.map(i =>
-      i.id === id ? { ...i, connected: newConnected, lastSynced: newConnected ? 'just now' : undefined } : i
-    ));
-    updateIntegrationMutation.mutate({ id, updates: { connected: newConnected } });
+    updateIntegrationMutation.mutate({ id, updates: { is_active: newConnected } });
   };
 
   const sendInvite = async () => {
@@ -230,34 +258,42 @@ export default function SettingsPage() {
         {/* ── Tab 1: Integrations ─────────────────────────────────────── */}
         <TabsContent value="integrations" className="mt-6 space-y-4">
           <Section title="Connected Integrations" description="Manage third-party service connections">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {integrations.map(integration => (
-                <div key={integration.id}
-                  className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{integration.icon}</span>
-                      <div>
-                        <p className="text-sm font-semibold">{integration.name}</p>
-                        <Badge variant="info" className="mt-0.5 text-[10px]">{integration.category}</Badge>
+            {integrationsQuery.isLoading ? (
+              <LoadingState variant="skeleton-cards" count={6} />
+            ) : integrationsQuery.isError ? (
+              <ErrorState title="Failed to load integrations" onRetry={() => integrationsQuery.refetch()} />
+            ) : integrations.length === 0 ? (
+              <EmptyState icon={Link2} title="No integrations" description="No integrations have been configured yet." />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {integrations.map(integration => (
+                  <div key={integration.id}
+                    className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{PROVIDER_ICONS[integration.provider.toLowerCase()] ?? '🔗'}</span>
+                        <div>
+                          <p className="text-sm font-semibold">{integration.name}</p>
+                          <Badge variant="info" className="mt-0.5 text-[10px] capitalize">{integration.provider}</Badge>
+                        </div>
                       </div>
+                      <Switch
+                        checked={integration.connected}
+                        onCheckedChange={() => toggleIntegration(integration.id)}
+                      />
                     </div>
-                    <Switch
-                      checked={integration.connected}
-                      onCheckedChange={() => toggleIntegration(integration.id)}
-                    />
+                    {integration.connected ? (
+                      <p className="text-xs text-muted-foreground">Connected since {integration.lastSynced}</p>
+                    ) : (
+                      <Button size="sm" variant="outline" className="w-full text-xs"
+                        onClick={() => toggleIntegration(integration.id)}>
+                        Connect
+                      </Button>
+                    )}
                   </div>
-                  {integration.connected ? (
-                    <p className="text-xs text-muted-foreground">Last synced {integration.lastSynced}</p>
-                  ) : (
-                    <Button size="sm" variant="outline" className="w-full text-xs"
-                      onClick={() => toggleIntegration(integration.id)}>
-                      Connect
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Section>
         </TabsContent>
 
@@ -292,50 +328,58 @@ export default function SettingsPage() {
               </div>
             )}
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-left text-xs text-muted-foreground">
-                    <th className="pb-3 pr-4 font-medium">Name</th>
-                    <th className="pb-3 pr-4 font-medium">Email</th>
-                    <th className="pb-3 pr-4 font-medium">Role</th>
-                    <th className="pb-3 pr-4 font-medium">Status</th>
-                    <th className="pb-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {team.map(member => (
-                    <tr key={member.id} className="border-b border-white/5 last:border-0">
-                      <td className="py-3 pr-4 font-medium">{member.name}</td>
-                      <td className="py-3 pr-4 text-muted-foreground">{member.email}</td>
-                      <td className="py-3 pr-4">
-                        <Select value={member.role} onValueChange={r => updateMemberRole(member.id, r)}>
-                          <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {['admin', 'manager', 'agent', 'viewer'].map(r => (
-                              <SelectItem key={r} value={r} className="capitalize text-xs">
-                                {r.charAt(0).toUpperCase() + r.slice(1)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <Badge variant={member.status === 'active' ? 'success' : 'warning'}>
-                          {member.status}
-                        </Badge>
-                      </td>
-                      <td className="py-3">
-                        <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
-                          onClick={() => removeMember(member.id)}>
-                          Remove
-                        </Button>
-                      </td>
+            {teamQuery.isLoading ? (
+              <LoadingState variant="skeleton-table" count={4} />
+            ) : teamQuery.isError ? (
+              <ErrorState title="Failed to load team members" onRetry={() => teamQuery.refetch()} />
+            ) : team.length === 0 ? (
+              <EmptyState icon={Link2} title="No team members" description="Invite your first team member to get started." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-xs text-muted-foreground">
+                      <th className="pb-3 pr-4 font-medium">Name</th>
+                      <th className="pb-3 pr-4 font-medium">Email</th>
+                      <th className="pb-3 pr-4 font-medium">Role</th>
+                      <th className="pb-3 pr-4 font-medium">Status</th>
+                      <th className="pb-3 font-medium">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {team.map(member => (
+                      <tr key={member.id} className="border-b border-white/5 last:border-0">
+                        <td className="py-3 pr-4 font-medium">{member.name}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">{member.email}</td>
+                        <td className="py-3 pr-4">
+                          <Select value={member.role} onValueChange={r => updateMemberRole(member.id, r)}>
+                            <SelectTrigger className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {['admin', 'manager', 'agent', 'viewer'].map(r => (
+                                <SelectItem key={r} value={r} className="capitalize text-xs">
+                                  {r.charAt(0).toUpperCase() + r.slice(1)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="py-3 pr-4">
+                          <Badge variant={member.status === 'active' ? 'success' : 'warning'}>
+                            {member.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3">
+                          <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                            onClick={() => removeMember(member.id)}>
+                            Remove
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Section>
         </TabsContent>
 

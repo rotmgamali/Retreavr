@@ -18,7 +18,7 @@ export interface VoiceAgent {
   persona: string
   system_prompt: string
   voice: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
-  status: 'active' | 'inactive' | 'draft'
+  status: 'active' | 'inactive' | 'draft' | 'training'
   vad_config: Record<string, unknown>
   created_at: string
   updated_at: string

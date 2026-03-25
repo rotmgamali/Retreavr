@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     [randomUUID(), payload.sub, newHash]
   );
 
-  const response = NextResponse.json({ access_token: accessToken });
+  const response = NextResponse.json({ access_token: accessToken, refresh_token: refreshToken });
   setAuthCookies(response, accessToken, refreshToken);
   return response;
 }

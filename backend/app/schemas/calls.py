@@ -1,7 +1,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -85,6 +85,19 @@ class CallSummaryUpdate(BaseModel):
 class CallSummaryResponse(CallSummaryBase):
     id: uuid.UUID
     call_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CallSentimentResponse(BaseModel):
+    id: uuid.UUID
+    call_id: uuid.UUID
+    overall_score: Optional[float] = None
+    customer_sentiment: Optional[str] = None
+    agent_sentiment: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

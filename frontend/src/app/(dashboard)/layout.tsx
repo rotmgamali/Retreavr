@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sidebar, MobileDrawer } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { PageTransition } from "@/components/layout/page-transition";
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { VoiceCallWidget } from "@/components/voice/voice-call-widget";
+import { useAuth } from "@/providers/auth-provider";
+import { api } from "@/lib/api-client";
 
 const SIDEBAR_KEY = "retrevr-sidebar-collapsed";
 
@@ -16,10 +19,38 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   // Track whether we are on a desktop viewport
   const [isDesktop, setIsDesktop] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_onboardingChecked, setOnboardingChecked] = useState(false);
+
+  // Check onboarding status and redirect if not completed
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+
+    let cancelled = false;
+    api
+      .get<{ onboarding_completed: boolean }>("/onboarding/status")
+      .then((status) => {
+        if (!cancelled && !status.onboarding_completed) {
+          router.push("/onboarding");
+        } else if (!cancelled) {
+          setOnboardingChecked(true);
+        }
+      })
+      .catch(() => {
+        // If the status check fails, allow dashboard access
+        if (!cancelled) setOnboardingChecked(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAuthenticated, router]);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -70,6 +101,9 @@ export default function DashboardLayout({
             </AnimatePresence>
           </main>
         </motion.div>
+
+        {/* Floating voice call widget — available on every dashboard page */}
+        <VoiceCallWidget />
       </div>
     </ProtectedRoute>
   );

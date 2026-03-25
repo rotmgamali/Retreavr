@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
   const response = NextResponse.json({
     user: { id: userId, email, first_name, last_name, role: "admin", organization_id: orgId },
     access_token: accessToken,
+    refresh_token: refreshToken,
   }, { status: 201 });
 
   setAuthCookies(response, accessToken, refreshToken);

@@ -21,6 +21,23 @@ export function useUpdateOrganization() {
   })
 }
 
+export interface IntegrationRow {
+  id: string
+  name: string
+  provider: string
+  config: Record<string, unknown> | null
+  is_active: boolean
+  created_at: string
+}
+
+export function useIntegrations() {
+  return useQuery({
+    queryKey: ['settings', 'integrations'],
+    queryFn: () => api.get<IntegrationRow[]>('/settings/integrations'),
+    staleTime: 60_000,
+  })
+}
+
 export function useUpdateIntegration() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query, queryOne } from "@/lib/db";
+import { queryOne } from "@/lib/db";
 import { requireAuthAndRole, parseBody, errorResponse } from "@/lib/api-helpers";
 
 export async function GET(

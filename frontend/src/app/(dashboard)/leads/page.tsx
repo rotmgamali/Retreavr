@@ -75,22 +75,6 @@ const COLUMNS: { key: Stage; label: string; color: string; dotColor: string }[] 
   { key: 'lost', label: 'Lost', color: 'bg-red-500/20 text-red-400', dotColor: 'bg-red-400' },
 ]
 
-// ── Seed data ────────────────────────────────────────────────────────────────
-
-const SEED_LEADS: Lead[] = [
-  { id: '1', name: 'James Wilson', email: 'james@acme.co', phone: '(555) 123-4567', company: 'Acme Corp', insuranceType: 'Commercial General Liability', estimatedPremium: 4200, source: 'Inbound Call', assignedAgent: 'Sarah AI', lastContact: '2 hours ago', stage: 'new' },
-  { id: '2', name: 'Maria Garcia', email: 'maria@garcia.net', phone: '(555) 234-5678', insuranceType: 'Home Insurance', estimatedPremium: 1800, source: 'Website', assignedAgent: 'Sarah AI', lastContact: '30 min ago', stage: 'new' },
-  { id: '3', name: 'Robert Chen', email: 'rchen@tech.io', phone: '(555) 345-6789', company: 'TechStart Inc', insuranceType: 'Cyber Liability', estimatedPremium: 6500, source: 'Referral', assignedAgent: 'Mike AI', lastContact: '1 day ago', stage: 'contacted' },
-  { id: '4', name: 'Sarah Thompson', email: 'sarah.t@mail.com', phone: '(555) 456-7890', insuranceType: 'Auto Insurance', estimatedPremium: 2100, source: 'Campaign', assignedAgent: 'Mike AI', lastContact: '4 hours ago', stage: 'contacted' },
-  { id: '5', name: 'David Kim', email: 'dkim@enterprise.com', phone: '(555) 567-8901', company: 'Enterprise LLC', insuranceType: "Workers' Comp", estimatedPremium: 8900, source: 'Inbound Call', assignedAgent: 'Alex AI', lastContact: '3 hours ago', stage: 'qualified' },
-  { id: '6', name: 'Emily Brown', email: 'emily.b@home.net', phone: '(555) 678-9012', insuranceType: 'Life Insurance', estimatedPremium: 3200, source: 'Website', assignedAgent: 'Sarah AI', lastContact: '5 hours ago', stage: 'qualified' },
-  { id: '7', name: 'Michael Davis', email: 'm.davis@corp.co', phone: '(555) 789-0123', company: 'Davis & Sons', insuranceType: 'Professional Liability', estimatedPremium: 5400, source: 'Referral', assignedAgent: 'Mike AI', lastContact: '1 day ago', stage: 'quoted' },
-  { id: '8', name: 'Jennifer Lee', email: 'jlee@startup.io', phone: '(555) 890-1234', company: 'StartupXYZ', insuranceType: 'D&O Insurance', estimatedPremium: 12000, source: 'Campaign', assignedAgent: 'Alex AI', lastContact: '6 hours ago', stage: 'quoted' },
-  { id: '9', name: 'Patricia Moore', email: 'p.moore@home.com', phone: '(555) 901-2345', insuranceType: 'Home Insurance', estimatedPremium: 2400, source: 'Inbound Call', assignedAgent: 'Sarah AI', lastContact: '2 days ago', stage: 'bound' },
-  { id: '10', name: 'Thomas Anderson', email: 'tanderson@neo.com', phone: '(555) 012-3456', company: 'Neo Systems', insuranceType: 'Commercial Package', estimatedPremium: 15000, source: 'Referral', assignedAgent: 'Mike AI', lastContact: '3 days ago', stage: 'bound' },
-  { id: '11', name: 'Lisa Wang', email: 'lwang@old.co', phone: '(555) 111-2222', insuranceType: 'Auto Insurance', estimatedPremium: 1500, source: 'Campaign', assignedAgent: 'Alex AI', lastContact: '1 week ago', notes: 'Found cheaper elsewhere', stage: 'lost' },
-]
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const INSURANCE_TYPES = [
@@ -103,7 +87,6 @@ const AGENTS_LIST = ['Sarah AI', 'Mike AI', 'Alex AI', 'Jordan AI', 'Casey AI']
 
 // ── Add Lead Dialog ───────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AddLeadDialog({
   open,
   onClose,
@@ -224,7 +207,6 @@ function AddLeadDialog({
 
 // ── Lead Detail Dialog ────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function LeadDetailDialog({
   lead,
   onClose,

@@ -20,7 +20,7 @@ from app.services.realtime.event_bus import Event, EventType, event_bus
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(eq=False)
 class Connection:
     websocket: WebSocket
     user_id: str

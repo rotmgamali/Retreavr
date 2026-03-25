@@ -2,15 +2,16 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_org, get_db
-from app.models.calls import Call, CallSummary, CallTranscript
+from app.models.calls import Call, CallSentiment, CallSummary, CallTranscript
 from app.schemas.calls import (
     CallCreate,
     CallResponse,
+    CallSentimentResponse,
     CallSummaryCreate,
     CallSummaryResponse,
     CallSummaryUpdate,
@@ -20,6 +21,7 @@ from app.schemas.calls import (
     CallUpdate,
 )
 from app.schemas.common import PaginatedResponse
+from app.services.ai.post_processing import run_post_processing
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -119,6 +121,7 @@ async def get_call_transcript(
 async def create_call_transcript(
     call_id: uuid.UUID,
     body: CallTranscriptCreate,
+    background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
 ):
@@ -129,7 +132,27 @@ async def create_call_transcript(
     db.add(transcript)
     await db.flush()
     await db.refresh(transcript)
+
+    if transcript.transcript:
+        background_tasks.add_task(run_post_processing, call_id, transcript.transcript)
+
     return transcript
+
+
+@router.get("/{call_id}/sentiment", response_model=CallSentimentResponse)
+async def get_call_sentiment(
+    call_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+):
+    call = await db.get(Call, call_id)
+    if not call or call.organization_id != org_id or call.is_deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
+    result = await db.execute(select(CallSentiment).where(CallSentiment.call_id == call_id))
+    sentiment = result.scalar_one_or_none()
+    if not sentiment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sentiment data not yet available")
+    return sentiment
 
 
 @router.get("/{call_id}/summary", response_model=CallSummaryResponse)

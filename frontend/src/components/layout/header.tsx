@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumbs } from "./breadcrumbs";
+import { useAuth } from "@/providers/auth-provider";
+import dynamic from "next/dynamic";
+
+const TenantSwitcher = dynamic(
+  () => import("@/components/admin/tenant-switcher").then((m) => m.TenantSwitcher),
+  { ssr: false }
+);
 
 interface HeaderProps {
   onMenuOpen?: () => void;
@@ -14,6 +21,7 @@ interface HeaderProps {
 
 export function Header({ onMenuOpen }: HeaderProps) {
   const [bellRing, setBellRing] = useState(false);
+  const { user } = useAuth();
 
   const handleBellClick = () => {
     setBellRing(true);
@@ -48,6 +56,13 @@ export function Header({ onMenuOpen }: HeaderProps) {
           />
         </div>
       </div>
+
+      {/* Tenant switcher (superadmin only) */}
+      {user?.role === "superadmin" && (
+        <div className="shrink-0">
+          <TenantSwitcher />
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex items-center gap-3 shrink-0">

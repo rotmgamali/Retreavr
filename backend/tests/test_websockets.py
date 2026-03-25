@@ -533,10 +533,10 @@ class TestConnectionManagerEventBusIntegration:
         delivered: list[dict] = []
         ws = AsyncMock()
 
-        async def capture_send(text: str) -> None:
+        async def capture_send_a(text: str) -> None:
             delivered.append(json.loads(text))
 
-        ws.send_text = AsyncMock(side_effect=capture_send)
+        ws.send_text = AsyncMock(side_effect=capture_send_a)
 
         from app.services.realtime.connection_manager import Connection
         conn = Connection(websocket=ws, user_id="u1", org_id=ORG_A, role="agent")
@@ -566,10 +566,10 @@ class TestConnectionManagerEventBusIntegration:
         delivered: list[dict] = []
         ws = AsyncMock()
 
-        async def capture_send(text: str) -> None:
+        async def capture_send_b(text: str) -> None:
             delivered.append(json.loads(text))
 
-        ws.send_text = AsyncMock(side_effect=capture_send)
+        ws.send_text = AsyncMock(side_effect=capture_send_b)
 
         from app.services.realtime.connection_manager import Connection
         conn = Connection(websocket=ws, user_id="u1", org_id=ORG_A, role="agent")
@@ -599,7 +599,11 @@ class TestConnectionManagerEventBusIntegration:
 
         delivered: list[dict] = []
         ws = AsyncMock()
-        ws.send_text = AsyncMock(side_effect=lambda t: delivered.append(json.loads(t)))
+
+        async def capture_send_c(text: str) -> None:
+            delivered.append(json.loads(text))
+
+        ws.send_text = AsyncMock(side_effect=capture_send_c)
 
         from app.services.realtime.connection_manager import Connection
         conn = Connection(websocket=ws, user_id="u1", org_id=ORG_A, role="manager")

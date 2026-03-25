@@ -4,3 +4,4 @@ export { MotionCard } from "./motion-card";
 export { StatusPulse } from "./status-pulse";
 export { Spinner } from "./spinner";
 export { AnimatedCounter } from "./animated-counter";
+export { FadeIn, SkeletonToContent } from "./fade-in";

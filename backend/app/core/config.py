@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/retrevr"
     database_echo: bool = False
 
-    # Auth
-    secret_key: str = "CHANGE-ME-IN-PRODUCTION"
+    # Auth (no default — must be set via env var or .env file)
+    secret_key: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
@@ -52,4 +52,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.secret_key or settings.secret_key == "CHANGE-ME-IN-PRODUCTION":
+        raise RuntimeError(
+            "SECRET_KEY must be set to a secure value. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+    return settings

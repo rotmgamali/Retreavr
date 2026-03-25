@@ -19,3 +19,7 @@ export { useDashboardKPIs, useAgentPerformance, useConversionFunnel, useCallVolu
 
 // Settings
 export { useOrganization, useUpdateOrganization, useUpdateIntegration, useTeamMembers, useAddTeamMember, useUpdateTeamMember } from './use-settings'
+
+// Voice Call
+export { useVoiceCall } from './use-voice-call'
+export type { CallState, CallSummaryData, UseVoiceCallReturn } from './use-voice-call'
