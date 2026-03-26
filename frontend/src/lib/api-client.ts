@@ -150,28 +150,6 @@ export const api = {
       body: formData,
       headers: {}, // Let browser set Content-Type with boundary
     }),
-
-  // --- Analytics & Dashboard -----------------------------------------------
-
-  getAnalytics: async (range: string = '7d') => {
-    return request<Record<string, unknown>>(`/analytics/summary?range=${range}`)
-  },
-
-  getConversionAnalytics: async (days: number = 30) => {
-    return request<Record<string, unknown>>(`/analytics/conversion?days=${days}`)
-  },
-
-  getCallVolume: async (range: string = '7d') => {
-    return request<Record<string, unknown>>(`/analytics/calls/volume?range=${range}`)
-  },
-
-  getLiveAgents: async () => {
-    return request<Record<string, unknown>[]>('/analytics/agents/live')
-  },
-
-  getDashboardSummary: async () => {
-    return request<Record<string, unknown>>('/dashboard/summary')
-  },
 }
 
 // --- Auth helpers (used by auth context) ---------------------------------

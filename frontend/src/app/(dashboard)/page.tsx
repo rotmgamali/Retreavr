@@ -59,10 +59,10 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialAgents]);
 
-  const callsSparkline = useMemo(() => trendToSparkline(kpis?.calls_trend), [kpis?.calls_trend]);
-  const conversionSparkline = useMemo(() => trendToSparkline(kpis?.conversion_trend), [kpis?.conversion_trend]);
-  const leadsSparkline = useMemo(() => trendToSparkline(kpis?.leads_trend), [kpis?.leads_trend]);
-  const revenueSparkline = useMemo(() => trendToSparkline(kpis?.revenue_trend), [kpis?.revenue_trend]);
+  const callsSparkline = useMemo(() => trendToSparkline(kpis?.calls_trend ?? []), [kpis?.calls_trend]);
+  const conversionSparkline = useMemo(() => trendToSparkline(kpis?.conversion_trend ?? []), [kpis?.conversion_trend]);
+  const leadsSparkline = useMemo(() => trendToSparkline(kpis?.leads_trend ?? []), [kpis?.leads_trend]);
+  const revenueSparkline = useMemo(() => trendToSparkline(kpis?.revenue_trend ?? []), [kpis?.revenue_trend]);
 
   const kpiCards = useMemo(() => [
     {

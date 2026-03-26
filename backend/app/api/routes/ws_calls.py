@@ -67,8 +67,8 @@ async def call_monitor(
 
     # Verify the call belongs to the supervisor's organization
     from app.services.telephony.call_manager import get_call_by_id
-    from app.core.database import get_db as _get_db
-    async for db in _get_db():
+    from app.core.database import async_session
+    async with async_session() as db:
         call = await get_call_by_id(db, call_id)
         if call is None:
             await websocket.send_text(json.dumps({"type": "error", "message": "call_not_found"}))
@@ -78,7 +78,6 @@ async def call_monitor(
             await websocket.send_text(json.dumps({"type": "error", "message": "access_denied"}))
             await websocket.close(code=4003)
             return
-        break
 
     conn = Connection(websocket=websocket, user_id=user_id, org_id=org_id, role=role)
     await connection_manager.connect(conn)

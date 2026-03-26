@@ -192,9 +192,11 @@ async def update_tenant(
     if not org:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
+    TENANT_UPDATE_FIELDS = {"name", "is_active", "subscription_tier"}
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
-        setattr(org, field, value)
+        if field in TENANT_UPDATE_FIELDS:
+            setattr(org, field, value)
 
     await db.flush()
     await db.commit()

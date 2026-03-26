@@ -170,8 +170,10 @@ async def update_integration(
     if not integration or integration.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
 
+    INTEGRATION_UPDATE_FIELDS = {"name", "config", "credentials", "is_active"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(integration, field, value)
+        if field in INTEGRATION_UPDATE_FIELDS:
+            setattr(integration, field, value)
 
     await db.flush()
     await db.commit()
@@ -219,8 +221,10 @@ async def update_notification_rule(
     if not rule or rule.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification rule not found")
 
+    NOTIFICATION_RULE_UPDATE_FIELDS = {"name", "trigger_event", "conditions", "actions", "is_active"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(rule, field, value)
+        if field in NOTIFICATION_RULE_UPDATE_FIELDS:
+            setattr(rule, field, value)
 
     await db.flush()
     await db.commit()

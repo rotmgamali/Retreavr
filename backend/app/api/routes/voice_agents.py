@@ -79,8 +79,10 @@ async def update_voice_agent(
     if not agent or agent.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice agent not found")
 
+    AGENT_UPDATE_FIELDS = {"name", "persona", "system_prompt", "voice", "status", "vad_config"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(agent, field, value)
+        if field in AGENT_UPDATE_FIELDS:
+            setattr(agent, field, value)
 
     await db.flush()
     await db.commit()
@@ -111,14 +113,14 @@ async def list_agent_configs(
     # Verify agent belongs to org first
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     result = await db.execute(
         select(AgentConfig).where(AgentConfig.voice_agent_id == agent_id)
     )
     return result.scalars().all()
 
 
-@router.put("/{agent_id}/configs/{key}")
+@router.put("/{agent_id}/configs/{key}", response_model=AgentConfigResponse)
 async def upsert_agent_config(
     agent_id: uuid.UUID,
     key: str,
@@ -128,7 +130,7 @@ async def upsert_agent_config(
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.voice_agent_id == agent_id,
@@ -144,7 +146,7 @@ async def upsert_agent_config(
     await db.flush()
     await db.commit()
     await db.refresh(config)
-    return {"id": str(config.id), "key": config.key, "value": config.value}
+    return config
 
 
 @router.delete("/{agent_id}/configs/{key}", status_code=204)
@@ -156,7 +158,7 @@ async def delete_agent_config(
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.voice_agent_id == agent_id,
@@ -165,7 +167,7 @@ async def delete_agent_config(
     )
     config = result.scalar_one_or_none()
     if not config:
-        raise HTTPException(status_code=404, detail="Config not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Config not found")
     await db.delete(config)
     await db.flush()
     await db.commit()
@@ -180,11 +182,11 @@ async def attach_knowledge_document(
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     from app.models.knowledge import KnowledgeDocument
     doc = await db.get(KnowledgeDocument, document_id)
     if not doc or doc.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     existing = await db.execute(
         select(AgentKnowledgeBase).where(
             AgentKnowledgeBase.voice_agent_id == agent_id,
@@ -192,7 +194,7 @@ async def attach_knowledge_document(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Already attached")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already attached")
     link = AgentKnowledgeBase(voice_agent_id=agent_id, knowledge_document_id=document_id)
     db.add(link)
     await db.flush()
@@ -209,7 +211,7 @@ async def detach_knowledge_document(
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     result = await db.execute(
         select(AgentKnowledgeBase).where(
             AgentKnowledgeBase.voice_agent_id == agent_id,
@@ -218,7 +220,7 @@ async def detach_knowledge_document(
     )
     link = result.scalar_one_or_none()
     if not link:
-        raise HTTPException(status_code=404, detail="Not attached")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not attached")
     await db.delete(link)
     await db.flush()
     await db.commit()

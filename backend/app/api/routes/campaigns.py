@@ -70,8 +70,10 @@ async def update_campaign(
     if not campaign or campaign.organization_id != org_id or campaign.is_deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
+    CAMPAIGN_UPDATE_FIELDS = {"name", "type", "status", "config"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(campaign, field, value)
+        if field in CAMPAIGN_UPDATE_FIELDS:
+            setattr(campaign, field, value)
 
     await db.flush()
     await db.commit()

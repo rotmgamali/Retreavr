@@ -78,8 +78,10 @@ async def update_lead(
     if not lead or lead.organization_id != org_id or lead.is_deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
 
+    LEAD_UPDATE_FIELDS = {"first_name", "last_name", "email", "phone", "insurance_type", "status", "propensity_score", "metadata_"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(lead, field, value)
+        if field in LEAD_UPDATE_FIELDS:
+            setattr(lead, field, value)
 
     await db.flush()
     await db.commit()

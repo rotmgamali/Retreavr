@@ -68,7 +68,7 @@ interface AnalyticsData {
 }
 
 export default function AdminDashboardPage() {
-  const { data: stats, isLoading: statsLoading } = useQuery<OverviewStats>({
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useQuery<OverviewStats>({
     queryKey: ["admin", "overview"],
     queryFn: () => api.get<OverviewStats>("/admin/overview"),
     staleTime: 30_000,
@@ -133,7 +133,7 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
                 <p className="text-2xl font-bold text-foreground">
-                  {statsLoading ? <Skeleton className="h-8 w-20" /> : kpi.value}
+                  {statsLoading ? <Skeleton className="h-8 w-20" /> : statsError ? "\u2014" : kpi.value}
                 </p>
               </CardContent>
             </Card>

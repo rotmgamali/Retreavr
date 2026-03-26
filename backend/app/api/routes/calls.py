@@ -81,8 +81,10 @@ async def update_call(
     if not call or call.organization_id != org_id or call.is_deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
 
+    CALL_UPDATE_FIELDS = {"status", "duration", "twilio_sid", "sentiment_score"}
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(call, field, value)
+        if field in CALL_UPDATE_FIELDS:
+            setattr(call, field, value)
 
     await db.flush()
     await db.commit()
@@ -143,7 +145,7 @@ async def create_call_transcript(
     return transcript
 
 
-@router.patch("/{call_id}/transcript")
+@router.patch("/{call_id}/transcript", response_model=CallTranscriptResponse)
 async def update_call_transcript(
     call_id: uuid.UUID,
     body: CallTranscriptUpdate,
@@ -152,16 +154,18 @@ async def update_call_transcript(
 ):
     call = await db.get(Call, call_id)
     if not call or call.organization_id != org_id:
-        raise HTTPException(status_code=404, detail="Call not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
     result = await db.execute(
         select(CallTranscript).where(CallTranscript.call_id == call_id)
     )
     transcript = result.scalar_one_or_none()
     if not transcript:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transcript not found")
+    TRANSCRIPT_UPDATE_FIELDS = {"transcript", "language"}
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
-        setattr(transcript, field, value)
+        if field in TRANSCRIPT_UPDATE_FIELDS:
+            setattr(transcript, field, value)
     await db.flush()
     await db.commit()
     await db.refresh(transcript)

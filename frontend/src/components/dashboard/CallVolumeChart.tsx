@@ -60,7 +60,7 @@ export default function CallVolumeChart() {
     return raw.map((d) => ({
       hour: hourLabel(d.timestamp),
       calls: d.count,
-      answered: d.answered ?? Math.round(d.count * 0.87),
+      answered: d.answered ?? 0,
     }));
   }, [raw]);
 
