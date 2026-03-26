@@ -28,8 +28,11 @@ class OnboardingData(BaseModel):
     agent_name: Optional[str] = None
     agent_voice: Optional[str] = None
     agent_greeting: Optional[str] = None
-    phone_option: Optional[str] = None
     phone_number: Optional[str] = None
+    phone_provider: Optional[str] = None
+    request_new_number: Optional[bool] = None
+    inbound_number: Optional[str] = None
+    request_outbound_number: Optional[bool] = None
 
 
 @router.get("/status")

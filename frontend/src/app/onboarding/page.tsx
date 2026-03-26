@@ -47,10 +47,9 @@ interface OnboardingData {
   agent_name: string
   agent_voice: string
   agent_greeting: string
-  // Step 4
-  phone_number: string
-  phone_provider: 'existing' | 'twilio'
-  request_new_number: boolean
+  // Step 4 — Phone Setup
+  inbound_number: string
+  request_outbound_number: boolean
 }
 
 interface OnboardingStatus {
@@ -164,9 +163,8 @@ export default function OnboardingPage() {
     agent_name: '',
     agent_voice: 'alloy',
     agent_greeting: '',
-    phone_number: '',
-    phone_provider: 'existing',
-    request_new_number: false,
+    inbound_number: '',
+    request_outbound_number: true,
   })
 
   // Load existing onboarding status
@@ -231,9 +229,17 @@ export default function OnboardingPage() {
 
   async function goNext() {
     if (step < 4) {
-      await saveStep()
-      setDirection(1)
-      setStep((s) => s + 1)
+      setSaving(true)
+      setError(null)
+      try {
+        await api.post('/onboarding', data)
+        setDirection(1)
+        setStep((s) => s + 1)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save progress')
+      } finally {
+        setSaving(false)
+      }
     }
   }
 
@@ -700,117 +706,97 @@ function StepPhoneConfig({
       <div>
         <h2 className="text-2xl font-bold">Phone Configuration</h2>
         <p className="mt-1 text-slate-400">
-          Connect a phone number for your AI voice agents to handle calls.
+          Set up your inbound and outbound phone lines for AI voice agents.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            updateField('phone_provider', 'existing')
-            updateField('request_new_number', false)
-          }}
-          className={`flex flex-col items-center gap-3 rounded-xl border p-6 transition-all ${
-            data.phone_provider === 'existing'
-              ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
-              : 'border-white/10 bg-white/[0.03] hover:border-white/20'
-          }`}
-        >
-          <Phone
-            className={`h-8 w-8 ${
-              data.phone_provider === 'existing' ? 'text-blue-400' : 'text-slate-400'
-            }`}
-          />
-          <div className="text-center">
-            <p
-              className={`font-medium ${
-                data.phone_provider === 'existing' ? 'text-blue-300' : 'text-slate-200'
-              }`}
-            >
-              Use Existing Number
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Connect your current business phone number
+      {/* Inbound Line */}
+      <Card className="border-white/10 bg-white/[0.03] backdrop-blur-xl">
+        <CardContent className="space-y-4 p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400">
+              <Phone className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-medium text-slate-200">Inbound Line</p>
+              <p className="text-xs text-slate-500">
+                The number customers call to reach your AI agent
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Your Business Number</label>
+            <Input
+              value={data.inbound_number}
+              onChange={(e) => updateField('inbound_number', e.target.value)}
+              placeholder="+1 (555) 123-4567"
+              className="border-white/10 bg-white/5"
+            />
+            <p className="text-xs text-slate-500">
+              Enter your existing business number. We will provide call forwarding instructions
+              so incoming calls are answered by your AI agent.
             </p>
           </div>
-        </motion.button>
+        </CardContent>
+      </Card>
 
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            updateField('phone_provider', 'twilio')
-            updateField('request_new_number', true)
-            updateField('phone_number', '')
-          }}
-          className={`flex flex-col items-center gap-3 rounded-xl border p-6 transition-all ${
-            data.phone_provider === 'twilio' && data.request_new_number
-              ? 'border-blue-500/50 bg-blue-500/10 ring-1 ring-blue-500/20'
-              : 'border-white/10 bg-white/[0.03] hover:border-white/20'
-          }`}
-        >
-          <Rocket
-            className={`h-8 w-8 ${
-              data.phone_provider === 'twilio' && data.request_new_number
-                ? 'text-blue-400'
-                : 'text-slate-400'
-            }`}
-          />
-          <div className="text-center">
-            <p
-              className={`font-medium ${
-                data.phone_provider === 'twilio' && data.request_new_number
-                  ? 'text-blue-300'
-                  : 'text-slate-200'
-              }`}
-            >
-              Get a New Number
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              We will provision a new Twilio number for you
-            </p>
-          </div>
-        </motion.button>
-      </div>
-
-      {data.phone_provider === 'existing' && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="border-white/10 bg-white/[0.03] backdrop-blur-xl">
-            <CardContent className="space-y-4 p-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">Phone Number</label>
-                <Input
-                  value={data.phone_number}
-                  onChange={(e) => updateField('phone_number', e.target.value)}
-                  placeholder="+1 (555) 123-4567"
-                  className="border-white/10 bg-white/5"
-                />
+      {/* Outbound Line */}
+      <Card className="border-white/10 bg-white/[0.03] backdrop-blur-xl">
+        <CardContent className="space-y-4 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-500/20 text-green-400">
+                <Rocket className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-200">Outbound Line</p>
                 <p className="text-xs text-slate-500">
-                  Enter the number you want your AI agent to answer. We will send you
-                  forwarding instructions.
+                  A dedicated number for your AI agent to make outgoing calls
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+            </div>
+            <div
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                data.request_outbound_number
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-white/5 text-slate-500'
+              }`}
+            >
+              {data.request_outbound_number ? 'Included' : 'Skipped'}
+            </div>
+          </div>
 
-      {data.phone_provider === 'twilio' && data.request_new_number && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4"
-        >
-          <p className="text-sm text-blue-300">
-            A new phone number will be provisioned for your organization after launch. You will
-            receive setup instructions via email.
-          </p>
-        </motion.div>
-      )}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="rounded-lg border border-green-500/20 bg-green-500/5 p-3"
+          >
+            <p className="text-sm text-green-300">
+              A new outbound phone number will be provisioned for your organization after launch.
+              This keeps outbound calls separate from your main business line.
+            </p>
+          </motion.div>
+
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => updateField('request_outbound_number', !data.request_outbound_number)}
+            className={`w-full rounded-lg border px-4 py-2.5 text-sm transition-all ${
+              data.request_outbound_number
+                ? 'border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20'
+                : 'border-green-500/50 bg-green-500/10 text-green-300'
+            }`}
+          >
+            {data.request_outbound_number
+              ? 'Skip outbound number for now'
+              : 'Add outbound number'}
+          </motion.button>
+        </CardContent>
+      </Card>
 
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
         <p className="text-xs text-slate-500">
-          You can skip this step and configure phone numbers later from the dashboard settings.
+          You can update phone configuration anytime from the dashboard settings.
         </p>
       </div>
     </div>
@@ -850,11 +836,16 @@ function StepReview({ data }: { data: OnboardingData }) {
       done: true,
     },
     {
-      label: 'Phone',
-      value: data.request_new_number
+      label: 'Inbound Line',
+      value: data.inbound_number || 'Not configured (can add later)',
+      done: !!data.inbound_number,
+    },
+    {
+      label: 'Outbound Line',
+      value: data.request_outbound_number
         ? 'New number will be provisioned'
-        : data.phone_number || 'Not configured (can add later)',
-      done: !!data.phone_number || data.request_new_number,
+        : 'Skipped (can add later)',
+      done: data.request_outbound_number,
     },
   ]
 
