@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import {
   Drawer,
   DrawerContent,
@@ -12,12 +12,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { Mic, MicOff, PhoneOff, User, Bot, AlertCircle } from "lucide-react"
+import { Mic, PhoneOff, User, Bot, AlertCircle } from "lucide-react"
 import { useRealtimeVoice } from "@/hooks/use-realtime-voice"
 import { Waveform } from "@/components/visualizations/waveform"
 
 interface AgentTestDrawerProps {
-  agent: any
+  agent: { id: string; name: string }
   onOpenChange: (open: boolean) => void
 }
 
@@ -107,9 +107,9 @@ export function AgentTestDrawer({ agent, onOpenChange }: AgentTestDrawerProps) {
 
           <div className="h-24 bg-slate-900/50 rounded-2xl border border-slate-800 flex items-center justify-center overflow-hidden">
             {isConnected ? (
-              <Waveform volume={audioInputLevel} color="#6366f1" />
+              <Waveform isActive={audioInputLevel > 0.01} variant="accent" />
             ) : (
-              <p className="text-sm text-slate-500 italic">Press "Start Conversation" to begin</p>
+              <p className="text-sm text-slate-500 italic">Press &quot;Start Conversation&quot; to begin</p>
             )}
           </div>
         </div>
