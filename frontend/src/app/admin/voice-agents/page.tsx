@@ -34,7 +34,6 @@ import {
   Bot,
   Search,
   Building2,
-  Phone,
   Volume2,
   Eye,
 } from "lucide-react";
@@ -84,14 +83,12 @@ export default function GlobalVoiceAgentsPage() {
   // Summary stats
   const activeCount = allAgents.filter((a) => a.status === "active").length;
   const draftCount = allAgents.filter((a) => a.status === "draft").length;
-  const totalCalls = allAgents.reduce((sum, a) => sum + a.total_calls, 0);
   const uniqueOrgs = new Set(allAgents.map((a) => a.organization_id)).size;
 
   const summaryCards = [
-    { label: "Total Agents", value: allAgents.length, icon: Bot, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+    { label: "Total Agents", value: total, icon: Bot, color: "text-indigo-400", bg: "bg-indigo-500/10" },
     { label: "Active", value: activeCount, icon: Bot, color: "text-emerald-400", bg: "bg-emerald-500/10" },
     { label: "Draft", value: draftCount, icon: Bot, color: "text-amber-400", bg: "bg-amber-500/10" },
-    { label: "Total Agent Calls", value: totalCalls.toLocaleString(), icon: Phone, color: "text-blue-400", bg: "bg-blue-500/10" },
     { label: "Organizations", value: uniqueOrgs, icon: Building2, color: "text-purple-400", bg: "bg-purple-500/10" },
   ];
 
@@ -106,7 +103,7 @@ export default function GlobalVoiceAgentsPage() {
 
       {/* Summary */}
       <motion.div
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"
+        className="grid grid-cols-2 md:grid-cols-4 gap-4"
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
@@ -161,7 +158,6 @@ export default function GlobalVoiceAgentsPage() {
                 <TableHead>Agent</TableHead>
                 <TableHead>Organization</TableHead>
                 <TableHead>Voice</TableHead>
-                <TableHead className="text-center">Calls</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -187,7 +183,7 @@ export default function GlobalVoiceAgentsPage() {
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{agent.name}</p>
-                            <p className="text-[11px] text-muted-foreground truncate max-w-[200px]">{agent.persona}</p>
+                            <p className="text-[11px] text-muted-foreground truncate max-w-[200px]">{agent.system_prompt?.slice(0, 60) || ""}</p>
                           </div>
                         </div>
                       </TableCell>
@@ -203,7 +199,6 @@ export default function GlobalVoiceAgentsPage() {
                           <span className="text-sm capitalize">{agent.voice}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center text-sm">{agent.total_calls.toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge className={`text-[10px] border-0 ${
                           agent.status === "active" ? "bg-emerald-500/20 text-emerald-300" :
@@ -266,15 +261,6 @@ export default function GlobalVoiceAgentsPage() {
                     {selectedAgent.status}
                   </Badge>
                 </div>
-                <div>
-                  <label className="text-xs text-muted-foreground block mb-1">Total Calls</label>
-                  <p className="text-sm">{selectedAgent.total_calls.toLocaleString()}</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Persona</label>
-                <p className="text-sm text-muted-foreground">{selectedAgent.persona || "Not set"}</p>
               </div>
 
               <div>

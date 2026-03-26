@@ -453,3 +453,53 @@ async def admin_analytics(
         "call_volume": [],
         "top_agents": [],
     }
+
+
+# ── Platform Settings ────────────────────────────────────────────────
+
+DEFAULT_PLATFORM_SETTINGS = {
+    "feature_flags": {
+        "ai-summaries": True,
+        "sentiment-analysis": True,
+        "multi-agent": False,
+        "custom-voices": False,
+        "webhooks": True,
+        "api-access": True,
+        "beta-dashboard": False,
+    },
+    "max_tenants_limit": 500,
+    "support_email": "support@retrevr.ai",
+}
+
+
+@router.get("/settings")
+async def get_platform_settings(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, superadmin],
+):
+    org = await db.get(Organization, current_user.organization_id)
+    if not org:
+        return DEFAULT_PLATFORM_SETTINGS
+    stored = (org.settings or {}).get("platform_settings")
+    if not stored:
+        return DEFAULT_PLATFORM_SETTINGS
+    return {**DEFAULT_PLATFORM_SETTINGS, **stored}
+
+
+@router.patch("/settings")
+async def update_platform_settings(
+    body: dict,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, superadmin],
+):
+    org = await db.get(Organization, current_user.organization_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    settings = dict(org.settings or {})
+    existing = settings.get("platform_settings", {})
+    existing.update(body)
+    settings["platform_settings"] = existing
+    org.settings = settings
+    await db.flush()
+    await db.commit()
+    return {**DEFAULT_PLATFORM_SETTINGS, **existing}

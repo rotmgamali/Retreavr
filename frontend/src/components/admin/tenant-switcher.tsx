@@ -20,13 +20,13 @@ export function TenantSwitcher() {
   const { activeTenantId, activeTenantName, setActiveTenant, clearActiveTenant } =
     useTenantContextStore();
 
-  const { data: tenants } = useQuery<{ items: TenantOverview[] }>({
-    queryKey: ["admin", "tenants"],
-    queryFn: () => api.get<{ items: TenantOverview[] }>("/organizations/"),
+  const { data: tenantsResp } = useQuery<{ items: TenantOverview[]; total: number }>({
+    queryKey: ["admin", "tenants", "switcher"],
+    queryFn: () => api.get<{ items: TenantOverview[]; total: number }>("/admin/tenants?limit=100"),
     staleTime: 60_000,
   });
 
-  const tenantList = tenants?.items ?? [];
+  const tenantList = tenantsResp?.items ?? [];
 
   return (
     <div className="flex items-center gap-1">

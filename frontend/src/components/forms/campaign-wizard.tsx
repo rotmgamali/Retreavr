@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api-client'
 import {
   Dialog,
   DialogContent,
@@ -59,11 +61,11 @@ const AUDIENCE_SEGMENTS = [
   'Cold Leads',
 ]
 
-const MOCK_AGENTS = [
-  { id: 'agent-1', name: 'Alex (Outbound)', voice: 'Confident & Friendly' },
-  { id: 'agent-2', name: 'Morgan (Renewal)', voice: 'Warm & Professional' },
-  { id: 'agent-3', name: 'Jordan (Follow-up)', voice: 'Clear & Direct' },
-]
+interface AgentOption {
+  id: string
+  name: string
+  voice: string
+}
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -239,13 +241,16 @@ function StepAudience({ data, set }: { data: CampaignFormData; set: (k: keyof Ca
   )
 }
 
-function StepAgentScript({ data, set }: { data: CampaignFormData; set: (k: keyof CampaignFormData, v: unknown) => void }) {
+function StepAgentScript({ data, set, agents }: { data: CampaignFormData; set: (k: keyof CampaignFormData, v: unknown) => void; agents: AgentOption[] }) {
   return (
     <div className="space-y-4">
       <FieldWrap>
         <Label required>Select Agent</Label>
+        {agents.length === 0 && (
+          <p className="text-sm text-muted-foreground">No voice agents found. Create one first.</p>
+        )}
         <div className="space-y-2">
-          {MOCK_AGENTS.map(agent => (
+          {agents.map(agent => (
             <div
               key={agent.id}
               onClick={() => set('agentId', agent.id)}
@@ -379,8 +384,8 @@ function StepSchedule({ data, set }: { data: CampaignFormData; set: (k: keyof Ca
   )
 }
 
-function StepReview({ data }: { data: CampaignFormData }) {
-  const agent = MOCK_AGENTS.find(a => a.id === data.agentId)
+function StepReview({ data, agents }: { data: CampaignFormData; agents: AgentOption[] }) {
+  const agent = agents.find(a => a.id === data.agentId)
   return (
     <div className="space-y-4">
       <div className="glass-card p-4 space-y-0">
@@ -421,6 +426,18 @@ function StepReview({ data }: { data: CampaignFormData }) {
 export function CampaignWizard({ isOpen, onClose, onLaunch, onSaveDraft }: CampaignWizardProps) {
   const [step, setStep] = useState(1)
   const [data, setData] = useState<CampaignFormData>(DEFAULT_DATA)
+
+  const { data: agentsResp } = useQuery<{ items: AgentOption[]; total: number }>({
+    queryKey: ['voice-agents-for-campaign'],
+    queryFn: () => api.get<{ items: AgentOption[]; total: number }>('/voice-agents/?limit=50'),
+    staleTime: 30_000,
+    enabled: isOpen,
+  })
+  const agents: AgentOption[] = (agentsResp?.items ?? []).map(a => ({
+    id: a.id,
+    name: a.name,
+    voice: a.voice,
+  }))
 
   const set = (key: keyof CampaignFormData, value: unknown) => {
     setData(prev => ({ ...prev, [key]: value }))
@@ -495,9 +512,9 @@ export function CampaignWizard({ isOpen, onClose, onLaunch, onSaveDraft }: Campa
         <div className="px-6 py-5 overflow-y-auto max-h-[52vh]">
           {step === 1 && <StepBasicInfo {...stepProps} />}
           {step === 2 && <StepAudience {...stepProps} />}
-          {step === 3 && <StepAgentScript {...stepProps} />}
+          {step === 3 && <StepAgentScript {...stepProps} agents={agents} />}
           {step === 4 && <StepSchedule {...stepProps} />}
-          {step === 5 && <StepReview data={data} />}
+          {step === 5 && <StepReview data={data} agents={agents} />}
         </div>
 
         {/* Footer Navigation */}

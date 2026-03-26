@@ -108,6 +108,14 @@ async def get_current_org_ws(
 
 
 async def get_current_org(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> uuid.UUID:
+    # Allow superadmins to impersonate a tenant via X-Tenant-Id header
+    tenant_override = request.headers.get("x-tenant-id")
+    if tenant_override and current_user.role == "superadmin":
+        try:
+            return uuid.UUID(tenant_override)
+        except ValueError:
+            pass
     return current_user.organization_id

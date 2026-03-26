@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
-import type { TenantOverview } from "@/lib/api-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,14 +22,17 @@ const TIER_MRR: Record<string, number> = {
   enterprise: 999,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TenantRow = Record<string, any>;
+
 export default function BillingPage() {
-  const { data: tenants } = useQuery<TenantOverview[]>({
+  const { data: tenantsResp } = useQuery<{ items: TenantRow[]; total: number }>({
     queryKey: ["admin", "tenants"],
-    queryFn: () => api.get<TenantOverview[]>("/organizations/"),
+    queryFn: () => api.get<{ items: TenantRow[]; total: number }>("/admin/tenants?limit=200"),
     staleTime: 60_000,
   });
 
-  const all = tenants ?? [];
+  const all = tenantsResp?.items ?? [];
   const active = all.filter((t) => t.is_active);
 
   const mrr = active.reduce((sum, t) => sum + (TIER_MRR[t.subscription_tier] ?? 0), 0);
@@ -139,9 +141,9 @@ export default function BillingPage() {
                         {tenant.subscription_tier}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right text-sm">{tenant.total_calls.toLocaleString()}</TableCell>
-                    <TableCell className="text-right text-sm">{tenant.total_leads}</TableCell>
-                    <TableCell className="text-right text-sm">{tenant.total_users}</TableCell>
+                    <TableCell className="text-right text-sm">{(tenant.call_count ?? 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-sm">{tenant.lead_count ?? 0}</TableCell>
+                    <TableCell className="text-right text-sm">{tenant.user_count ?? 0}</TableCell>
                     <TableCell className="text-right text-sm font-medium text-amber-300">
                       {tenant.is_active ? `$${TIER_MRR[tenant.subscription_tier] ?? 0}` : "—"}
                     </TableCell>

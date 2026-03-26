@@ -79,6 +79,20 @@ class ApiError extends Error {
   }
 }
 
+// --- Tenant context for superadmin impersonation -------------------------
+
+function getActiveTenantId(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem('retrevr-active-tenant')
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed?.state?.activeTenantId ?? null
+  } catch {
+    return null
+  }
+}
+
 // --- Core request with auto-refresh + auth header ------------------------
 
 async function request<T>(
@@ -88,10 +102,12 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}`
   const token = getAccessToken()
+  const tenantId = getActiveTenantId()
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
     ...options.headers,
   }
 

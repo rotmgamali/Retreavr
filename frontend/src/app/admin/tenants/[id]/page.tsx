@@ -41,7 +41,6 @@ import {
   UserCheck,
   Settings,
   Eye,
-  Megaphone,
   Power,
   PowerOff,
   Save,
@@ -145,12 +144,10 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
   };
 
   const statCards = [
-    { label: "Users", value: t.total_users, icon: Users, color: "text-purple-400", bg: "bg-purple-500/10" },
-    { label: "Voice Agents", value: t.total_agents, icon: Bot, color: "text-blue-400", bg: "bg-blue-500/10" },
-    { label: "Calls This Month", value: t.calls_this_month.toLocaleString(), icon: Phone, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-    { label: "Total Calls", value: t.total_calls.toLocaleString(), icon: Phone, color: "text-indigo-400", bg: "bg-indigo-500/10" },
-    { label: "Leads", value: t.total_leads.toLocaleString(), icon: UserCheck, color: "text-amber-400", bg: "bg-amber-500/10" },
-    { label: "Campaigns", value: t.total_campaigns, icon: Megaphone, color: "text-pink-400", bg: "bg-pink-500/10" },
+    { label: "Users", value: t.user_count ?? 0, icon: Users, color: "text-purple-400", bg: "bg-purple-500/10" },
+    { label: "Voice Agents", value: t.agent_count ?? 0, icon: Bot, color: "text-blue-400", bg: "bg-blue-500/10" },
+    { label: "Total Calls", value: (t.call_count ?? 0).toLocaleString(), icon: Phone, color: "text-indigo-400", bg: "bg-indigo-500/10" },
+    { label: "Leads", value: (t.lead_count ?? 0).toLocaleString(), icon: UserCheck, color: "text-amber-400", bg: "bg-amber-500/10" },
   ];
 
   return (
@@ -265,9 +262,7 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                   <TableHeader>
                     <TableRow>
                       <TableHead>Agent Name</TableHead>
-                      <TableHead>Persona</TableHead>
                       <TableHead>Voice</TableHead>
-                      <TableHead className="text-center">Calls</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -282,9 +277,7 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                             <span className="text-sm font-medium">{agent.name}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground truncate max-w-[200px]">{agent.persona || "---"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground capitalize">{agent.voice}</TableCell>
-                        <TableCell className="text-center text-sm">{agent.total_calls.toLocaleString()}</TableCell>
                         <TableCell>
                           <Badge className={`text-[10px] border-0 ${
                             agent.status === "active" ? "bg-emerald-500/20 text-emerald-300" :
@@ -314,11 +307,10 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                   <TableHeader>
                     <TableRow>
                       <TableHead>Direction</TableHead>
-                      <TableHead>Agent</TableHead>
-                      <TableHead>Lead</TableHead>
+                      <TableHead>From</TableHead>
+                      <TableHead>To</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Duration</TableHead>
-                      <TableHead>Sentiment</TableHead>
                       <TableHead>Date</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -330,8 +322,8 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                             {call.direction}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm">{call.agent_name || "---"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{call.lead_name || "---"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{call.phone_from || "---"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{call.phone_to || "---"}</TableCell>
                         <TableCell>
                           <Badge className={`text-[10px] border-0 ${
                             call.status === "completed" ? "bg-emerald-500/20 text-emerald-300" :
@@ -342,14 +334,7 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {call.duration ? `${Math.floor(call.duration / 60)}m ${call.duration % 60}s` : "---"}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {call.sentiment_score != null ? (
-                            <span className={call.sentiment_score >= 0.6 ? "text-emerald-400" : call.sentiment_score >= 0.3 ? "text-amber-400" : "text-red-400"}>
-                              {(call.sentiment_score * 100).toFixed(0)}%
-                            </span>
-                          ) : "---"}
+                          {call.duration_seconds ? `${Math.floor(call.duration_seconds / 60)}m ${call.duration_seconds % 60}s` : "---"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(call.created_at).toLocaleDateString()}
