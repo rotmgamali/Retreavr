@@ -107,7 +107,7 @@ export default function UsersPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{user.org_name ?? user.organization_id}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{user.organization_name ?? user.organization_id}</TableCell>
                     <TableCell>
                       <Badge className={`text-[10px] border-0 capitalize ${roleColor(user.role)}`}>
                         {user.role}
