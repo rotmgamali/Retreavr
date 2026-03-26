@@ -6,7 +6,7 @@ Onboarding state is stored in Organization.settings["onboarding"].
 
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +61,7 @@ async def save_onboarding(
 ):
     org = await db.get(Organization, current_user.organization_id)
     if not org:
-        return {"error": "Organization not found"}
+        raise HTTPException(status_code=404, detail="Organization not found")
 
     settings: dict[str, Any] = dict(org.settings or {})
     onboarding_data = body.model_dump(exclude_unset=True)
@@ -100,5 +100,6 @@ async def save_onboarding(
         db.add(agent)
         await db.flush()
 
+    await db.commit()
     await db.refresh(org)
     return {"success": True, "onboarding_completed": True}

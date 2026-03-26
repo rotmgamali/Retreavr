@@ -130,6 +130,7 @@ async def create_tenant(
     )
     db.add(org)
     await db.flush()
+    await db.commit()
     await db.refresh(org)
     return {
         "id": str(org.id),
@@ -196,6 +197,7 @@ async def update_tenant(
         setattr(org, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(org)
     return {
         "id": str(org.id),
@@ -261,6 +263,7 @@ async def create_tenant_user(
     )
     db.add(user)
     await db.flush()
+    await db.commit()
     await db.refresh(user)
     return {
         "id": str(user.id),

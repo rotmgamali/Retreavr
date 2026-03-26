@@ -126,6 +126,7 @@ async def logout(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     await revoke_refresh_token(db, body.refresh_token)
+    await db.commit()
 
 
 @router.get("/me", response_model=UserProfileResponse)
@@ -153,6 +154,7 @@ async def update_me(
         current_user.last_name = body.last_name
 
     await db.flush()
+    await db.commit()
     await db.refresh(current_user)
     return UserProfileResponse.model_validate(current_user)
 
@@ -171,3 +173,4 @@ async def change_password(
     current_user.hashed_password = hash_password(body.new_password)
     await revoke_all_user_refresh_tokens(db, current_user.id)
     await db.flush()
+    await db.commit()
