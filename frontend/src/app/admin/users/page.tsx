@@ -22,14 +22,6 @@ interface AdminUser extends UserProfile {
   org_name?: string;
 }
 
-const MOCK_USERS: AdminUser[] = [
-  { id: "u1", email: "sarah@apex.com", first_name: "Sarah", last_name: "Chen", role: "admin", organization_id: "1", org_name: "Apex Insurance Group", is_active: true, created_at: "2025-01-10T00:00:00Z", updated_at: "2025-03-20T00:00:00Z" },
-  { id: "u2", email: "mike@apex.com", first_name: "Mike", last_name: "Torres", role: "agent", organization_id: "1", org_name: "Apex Insurance Group", is_active: true, created_at: "2025-01-15T00:00:00Z", updated_at: "2025-03-18T00:00:00Z" },
-  { id: "u3", email: "jane@blueharbor.com", first_name: "Jane", last_name: "Park", role: "admin", organization_id: "2", org_name: "Blue Harbor Agency", is_active: true, created_at: "2025-02-14T00:00:00Z", updated_at: "2025-03-21T00:00:00Z" },
-  { id: "u4", email: "tom@coastal.com", first_name: "Tom", last_name: "Walsh", role: "agent", organization_id: "3", org_name: "Coastal Coverage LLC", is_active: false, created_at: "2025-03-01T00:00:00Z", updated_at: "2025-03-05T00:00:00Z" },
-  { id: "u5", email: "lisa@eagle.com", first_name: "Lisa", last_name: "Novak", role: "superadmin", organization_id: "5", org_name: "Eagle Eye Brokers", is_active: true, created_at: "2024-12-05T00:00:00Z", updated_at: "2025-03-24T00:00:00Z" },
-];
-
 const PAGE_SIZE = 20;
 
 export default function UsersPage() {
@@ -39,11 +31,10 @@ export default function UsersPage() {
   const { data: users } = useQuery<AdminUser[]>({
     queryKey: ["admin", "users"],
     queryFn: () => api.get<AdminUser[]>("/admin/users"),
-    placeholderData: MOCK_USERS,
     staleTime: 60_000,
   });
 
-  const all = users ?? MOCK_USERS;
+  const all = users ?? [];
 
   const filtered = all.filter((u) => {
     if (!search) return true;

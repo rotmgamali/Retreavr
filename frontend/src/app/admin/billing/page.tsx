@@ -23,24 +23,14 @@ const TIER_MRR: Record<string, number> = {
   enterprise: 999,
 };
 
-const MOCK_TENANTS: TenantOverview[] = [
-  { id: "1", name: "Apex Insurance Group", slug: "apex", subscription_tier: "enterprise", total_users: 28, total_calls: 3_120, total_leads: 540, is_active: true, created_at: "2025-01-10T00:00:00Z" },
-  { id: "2", name: "Blue Harbor Agency", slug: "blue-harbor", subscription_tier: "pro", total_users: 12, total_calls: 1_840, total_leads: 290, is_active: true, created_at: "2025-02-14T00:00:00Z" },
-  { id: "3", name: "Coastal Coverage LLC", slug: "coastal", subscription_tier: "starter", total_users: 5, total_calls: 620, total_leads: 88, is_active: true, created_at: "2025-03-01T00:00:00Z" },
-  { id: "4", name: "Delta Risk Partners", slug: "delta", subscription_tier: "pro", total_users: 9, total_calls: 940, total_leads: 155, is_active: false, created_at: "2025-01-22T00:00:00Z" },
-  { id: "5", name: "Eagle Eye Brokers", slug: "eagle", subscription_tier: "enterprise", total_users: 45, total_calls: 5_200, total_leads: 820, is_active: true, created_at: "2024-12-05T00:00:00Z" },
-  { id: "6", name: "Frontier Financial", slug: "frontier", subscription_tier: "starter", total_users: 3, total_calls: 210, total_leads: 34, is_active: true, created_at: "2025-03-10T00:00:00Z" },
-];
-
 export default function BillingPage() {
   const { data: tenants } = useQuery<TenantOverview[]>({
     queryKey: ["admin", "tenants"],
     queryFn: () => api.get<TenantOverview[]>("/organizations/"),
-    placeholderData: MOCK_TENANTS,
     staleTime: 60_000,
   });
 
-  const all = tenants ?? MOCK_TENANTS;
+  const all = tenants ?? [];
   const active = all.filter((t) => t.is_active);
 
   const mrr = active.reduce((sum, t) => sum + (TIER_MRR[t.subscription_tier] ?? 0), 0);

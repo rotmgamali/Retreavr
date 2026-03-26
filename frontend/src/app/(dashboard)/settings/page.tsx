@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SkeletonToContent } from '@/components/animations';
 import { SettingsSkeleton } from '@/components/ui/page-skeletons';
 import { usePageLoading } from '@/hooks/use-page-loading';
-import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations } from '@/hooks/use-settings';
+import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations, useOrganization, useUpdateOrganization } from '@/hooks/use-settings';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -177,6 +177,10 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('agent');
 
+  // ── Org settings (real API) ──
+  const orgQuery = useOrganization();
+  const updateOrgMutation = useUpdateOrganization();
+
   // ── Billing ──
   const [billingEmail, setBillingEmail] = useState('billing@company.com');
 
@@ -195,11 +199,48 @@ export default function SettingsPage() {
   // ── Branding ──
   const [brand, setBrand] = useState({ company: 'Retrevr Insurance', color: '#3b82f6', logo: '' });
 
+  // ── Sync state from org settings on load ──
+  useEffect(() => {
+    const s = orgQuery.data?.settings as Record<string, Record<string, unknown>> | undefined;
+    if (!s) return;
+    if (s.notifications) {
+      setNotifs({
+        email: (s.notifications.email ?? true) as boolean,
+        sms: (s.notifications.sms ?? false) as boolean,
+        digest: (s.notifications.digest ?? true) as boolean,
+        conversion: (s.notifications.conversion ?? true) as boolean,
+        missedCall: (s.notifications.missedCall ?? true) as boolean,
+      });
+      if (s.notifications.slack_webhook) setSlackWebhook(s.notifications.slack_webhook as string);
+    }
+    if (s.compliance) {
+      setCompliance({
+        recording: (s.compliance.recording ?? true) as boolean,
+        gdpr: (s.compliance.gdpr ?? false) as boolean,
+        hipaa: (s.compliance.hipaa ?? false) as boolean,
+      });
+      if (s.compliance.retention_days !== undefined) setRetention(s.compliance.retention_days as number);
+    }
+    if (s.branding) {
+      setBrand({
+        company: (s.branding.company ?? 'Retrevr Insurance') as string,
+        color: (s.branding.color ?? '#3b82f6') as string,
+        logo: (s.branding.logo ?? '') as string,
+      });
+    }
+  }, [orgQuery.data]);
+
   // ── Toasts ──
   const [toast, setToast] = useState<string | null>(null);
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // ── Settings save helpers ──
+  const saveOrgSettings = async (patch: Record<string, unknown>) => {
+    const current = (orgQuery.data?.settings ?? {}) as Record<string, unknown>;
+    await updateOrgMutation.mutateAsync({ settings: { ...current, ...patch } });
   };
 
   // ── Handlers ──
@@ -386,37 +427,34 @@ export default function SettingsPage() {
         {/* ── Tab 3: Billing ──────────────────────────────────────────── */}
         <TabsContent value="billing" className="mt-6 space-y-4">
           {/* Current plan */}
-          <Section title="Current Plan">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold">Growth</span>
-                  <Badge variant="info">Current</Badge>
+          {(() => {
+            const tier = orgQuery.data?.subscription_tier ?? 'pro';
+            const PLAN_MAP: Record<string, { name: string; price: number; features: string[] }> = {
+              starter: { name: 'Starter', price: 99, features: ['Up to 2 AI agents', '2,000 API calls/mo', '2 GB storage', 'Email support', 'Basic analytics'] },
+              pro: { name: 'Growth', price: 299, features: ['Up to 5 AI agents', '10,000 API calls/mo', '10 GB storage', 'Priority support', 'Advanced analytics'] },
+              enterprise: { name: 'Enterprise', price: 999, features: ['Unlimited AI agents', 'Unlimited API calls', '100 GB storage', 'Dedicated support', 'Custom integrations'] },
+            };
+            const plan = PLAN_MAP[tier] ?? PLAN_MAP.pro;
+            return (
+              <Section title="Current Plan">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-bold capitalize">{plan.name}</span>
+                      <Badge variant="info">Current</Badge>
+                    </div>
+                    <p className="mt-1 text-3xl font-bold">${plan.price}<span className="text-base font-normal text-muted-foreground">/mo</span></p>
+                    <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+                      {plan.features.map(f => (
+                        <li key={f} className="flex items-center gap-2"><span className="text-green-400">✓</span>{f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <Button variant="outline" className="shrink-0">Upgrade Plan</Button>
                 </div>
-                <p className="mt-1 text-3xl font-bold">$299<span className="text-base font-normal text-muted-foreground">/mo</span></p>
-                <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
-                  {['Up to 5 AI agents', '10,000 API calls/mo', '10 GB storage', 'Priority support', 'Advanced analytics'].map(f => (
-                    <li key={f} className="flex items-center gap-2"><span className="text-green-400">✓</span>{f}</li>
-                  ))}
-                </ul>
-              </div>
-              <Button variant="outline" className="shrink-0">Upgrade Plan</Button>
-            </div>
-          </Section>
-
-          {/* Payment method */}
-          <Section title="Payment Method">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-16 items-center justify-center rounded border border-white/10 bg-white/5 text-xs font-bold text-blue-400">VISA</div>
-                <div>
-                  <p className="text-sm font-medium">•••• •••• •••• 4242</p>
-                  <p className="text-xs text-muted-foreground">Expires 12/26</p>
-                </div>
-              </div>
-              <Button size="sm" variant="outline">Update Payment</Button>
-            </div>
-          </Section>
+              </Section>
+            );
+          })()}
 
           {/* Billing email */}
           <Section title="Billing Email">
@@ -450,7 +488,10 @@ export default function SettingsPage() {
             <ToggleRow label="Notify on missed call" description="Alert when an agent misses an inbound call"
               checked={notifs.missedCall} onCheckedChange={v => setNotifs(p => ({ ...p, missedCall: v }))} />
             <div className="mt-2 pt-4 border-t border-white/10">
-              <Button size="sm" onClick={() => showToast('Notification preferences saved')}>Save Preferences</Button>
+              <Button size="sm" disabled={updateOrgMutation.isPending} onClick={async () => {
+                await saveOrgSettings({ notifications: { ...notifs, slack_webhook: slackWebhook } });
+                showToast('Notification preferences saved');
+              }}>Save Preferences</Button>
             </div>
           </Section>
 
@@ -459,7 +500,10 @@ export default function SettingsPage() {
               <Input placeholder="https://hooks.slack.com/services/…" value={slackWebhook}
                 onChange={e => setSlackWebhook(e.target.value)} className="flex-1" />
               <Button size="sm" variant="outline" onClick={() => showToast('Test message sent to Slack')}>Test</Button>
-              <Button size="sm" onClick={() => showToast('Slack webhook saved')}>Save</Button>
+              <Button size="sm" disabled={updateOrgMutation.isPending} onClick={async () => {
+                await saveOrgSettings({ notifications: { ...notifs, slack_webhook: slackWebhook } });
+                showToast('Slack webhook saved');
+              }}>Save</Button>
             </div>
           </Section>
         </TabsContent>
@@ -497,7 +541,10 @@ export default function SettingsPage() {
               </p>
             )}
             <div className="mt-4 pt-4 border-t border-white/10">
-              <Button size="sm" onClick={() => showToast('Compliance settings saved')}>Save Settings</Button>
+              <Button size="sm" disabled={updateOrgMutation.isPending} onClick={async () => {
+                await saveOrgSettings({ compliance: { ...compliance, retention_days: retention } });
+                showToast('Compliance settings saved');
+              }}>Save Settings</Button>
             </div>
           </Section>
 
@@ -579,7 +626,10 @@ export default function SettingsPage() {
           </Section>
 
           <div>
-            <Button onClick={() => showToast('Branding settings saved')}>Save Changes</Button>
+            <Button disabled={updateOrgMutation.isPending} onClick={async () => {
+              await saveOrgSettings({ branding: { company: brand.company, color: brand.color, logo: brand.logo } });
+              showToast('Branding settings saved');
+            }}>Save Changes</Button>
           </div>
         </TabsContent>
       </Tabs>

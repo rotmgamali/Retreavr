@@ -23,6 +23,15 @@ export function useCallHistory(params?: { limit?: number; offset?: number }) {
   })
 }
 
+export function useQueuedCalls() {
+  return useQuery({
+    queryKey: ['calls', 'queued'],
+    queryFn: () => api.get<PaginatedResponse<Call>>('/calls/?status=ringing,queued'),
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+  })
+}
+
 export function useCallRecord(id: string) {
   return useQuery({
     queryKey: ['call-history', id],

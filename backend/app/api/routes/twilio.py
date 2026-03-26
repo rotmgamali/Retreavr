@@ -13,6 +13,7 @@ Routes:
   POST /twilio/recording/status   - Recording status callback
   WS   /ws/twilio/media/{call_sid} - Media Streams bridge
 """
+import asyncio
 import logging
 import uuid
 from typing import Optional
@@ -40,6 +41,8 @@ from app.services.telephony.recording import (
     store_twilio_recording_url,
     fetch_and_upload_twilio_recording,
 )
+from app.services.post_call_processor import run_post_call_processing
+from app.core.database import async_session
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -328,9 +331,16 @@ async def twilio_media_stream(
             system_prompt = agent.system_prompt or system_prompt
             voice = agent.voice or voice
 
-    bridge = TwilioOpenAIBridge(call_sid=call_sid, system_prompt=system_prompt, voice=voice)
+    bridge = TwilioOpenAIBridge(
+        call_sid=call_sid,
+        call_id=call.id,
+        organization_id=call.organization_id,
+        system_prompt=system_prompt,
+        voice=voice,
+    )
+    transcript = None
     try:
-        await bridge.run(websocket)
+        transcript = await bridge.run(websocket)
     except WebSocketDisconnect:
         logger.info("Media stream WS disconnected: call_sid=%s", call_sid)
     except Exception as exc:
@@ -340,3 +350,19 @@ async def twilio_media_stream(
             await websocket.close()
         except Exception:
             pass
+
+        # Save transcript and trigger post-call processing as background task
+        if transcript is not None:
+            transcript_text = transcript.as_text()
+            call_db_id = call.id
+
+            async def _post_call_bg() -> None:
+                try:
+                    async with async_session() as bg_db:
+                        await transcript.save_to_db(bg_db, call_db_id)
+                        await run_post_call_processing(call_db_id, transcript_text, bg_db)
+                        await bg_db.commit()
+                except Exception:
+                    logger.exception("Post-call processing failed for call_sid=%s", call_sid)
+
+            asyncio.create_task(_post_call_bg())

@@ -136,23 +136,23 @@ export const api = {
   // --- Analytics & Dashboard -----------------------------------------------
 
   getAnalytics: async (range: string = '7d') => {
-    return request<any>(`/analytics/summary?range=${range}`)
+    return request<Record<string, unknown>>(`/analytics/summary?range=${range}`)
   },
 
   getConversionAnalytics: async (days: number = 30) => {
-    return request<any>(`/analytics/conversion?days=${days}`)
+    return request<Record<string, unknown>>(`/analytics/conversion?days=${days}`)
   },
 
   getCallVolume: async (range: string = '7d') => {
-    return request<any>(`/analytics/calls/volume?range=${range}`)
+    return request<Record<string, unknown>>(`/analytics/calls/volume?range=${range}`)
   },
 
   getLiveAgents: async () => {
-    return request<any[]>('/analytics/agents/live')
+    return request<Record<string, unknown>[]>('/analytics/agents/live')
   },
 
   getDashboardSummary: async () => {
-    return request<any>('/dashboard/summary')
+    return request<Record<string, unknown>>('/dashboard/summary')
   },
 }
 

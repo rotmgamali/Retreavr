@@ -8,15 +8,19 @@ WebSocket endpoint: WS /ws/twilio/media/{call_sid}
 Audio conversion is done with audioop (stdlib) – no ffmpeg required.
 """
 import audioop
+import asyncio
 import base64
 import json
 import logging
 from typing import Optional
+from uuid import UUID
 
 import websockets
 from websockets.asyncio.client import ClientConnection
 
 from app.core.config import get_settings
+from app.services.voice.tools import ToolExecutor, build_tool_definitions
+from app.services.voice.transcript import TranscriptCapture
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,8 @@ def build_openai_session_update(system_prompt: str, voice: str = "alloy") -> dic
                 "prefix_padding_ms": 300,
                 "silence_duration_ms": 500,
             },
+            "tools": build_tool_definitions(),
+            "tool_choice": "auto",
         },
     }
 
@@ -113,21 +119,33 @@ class TwilioOpenAIBridge:
 
     Usage (inside a FastAPI WebSocket handler):
 
-        bridge = TwilioOpenAIBridge(call_sid, system_prompt, voice)
-        await bridge.run(twilio_ws)
+        bridge = TwilioOpenAIBridge(call_sid, call_id, organization_id, system_prompt, voice)
+        transcript = await bridge.run(twilio_ws)
     """
 
-    def __init__(self, call_sid: str, system_prompt: str, voice: str = "alloy"):
+    def __init__(
+        self,
+        call_sid: str,
+        call_id: UUID,
+        organization_id: UUID,
+        system_prompt: str,
+        voice: str = "alloy",
+    ):
         self.call_sid = call_sid
+        self.call_id = call_id
+        self.organization_id = organization_id
         self.system_prompt = system_prompt
         self.voice = voice
         self._stream_sid: Optional[str] = None
         self._openai_ws: Optional[ClientConnection] = None
+        self._transcript = TranscriptCapture(call_sid)
+        self._tool_executor = ToolExecutor(call_sid, organization_id)
 
-    async def run(self, twilio_ws) -> None:
+    async def run(self, twilio_ws) -> TranscriptCapture:
         """
         Main bridge loop.  `twilio_ws` is a FastAPI WebSocket object.
         Opens a connection to OpenAI Realtime and routes audio bidirectionally.
+        Returns the TranscriptCapture with accumulated transcript data.
         """
         openai_headers = {
             "Authorization": f"Bearer {settings.openai_api_key}",
@@ -137,14 +155,15 @@ class TwilioOpenAIBridge:
         async with websockets.connect(_OPENAI_WS_URL, additional_headers=openai_headers) as openai_ws:
             self._openai_ws = openai_ws
 
-            # Configure the session
+            # Configure the session with tools
             await openai_ws.send(json.dumps(build_openai_session_update(self.system_prompt, self.voice)))
 
-            import asyncio
             await asyncio.gather(
                 self._forward_twilio_to_openai(twilio_ws, openai_ws),
                 self._forward_openai_to_twilio(twilio_ws, openai_ws),
             )
+
+        return self._transcript
 
     async def _forward_twilio_to_openai(self, twilio_ws, openai_ws) -> None:
         """Read Twilio Media Stream events → send audio to OpenAI."""
@@ -186,7 +205,7 @@ class TwilioOpenAIBridge:
                 pass
 
     async def _forward_openai_to_twilio(self, twilio_ws, openai_ws) -> None:
-        """Read OpenAI Realtime events → stream audio back to Twilio."""
+        """Read OpenAI Realtime events → stream audio back to Twilio, handle tools and transcripts."""
         try:
             async for raw in openai_ws:
                 msg = json.loads(raw)
@@ -213,6 +232,36 @@ class TwilioOpenAIBridge:
                             "mark": {"name": "audio_done"},
                         }
                         await twilio_ws.send_text(json.dumps(mark_msg))
+
+                elif msg_type == "response.audio_transcript.delta":
+                    await self._transcript.on_transcript_delta(msg)
+
+                elif msg_type == "response.done":
+                    await self._transcript.on_response_done(msg)
+
+                elif msg_type == "input_audio_buffer.speech_started":
+                    await self._transcript.on_speech_started(msg)
+
+                elif msg_type == "response.function_call_arguments.done":
+                    tool_call_id = msg.get("call_id", "")
+                    tool_name = msg.get("name", "")
+                    tool_args = msg.get("arguments", "{}")
+                    logger.info(
+                        "[bridge %s] tool call: %s (call_id=%s)",
+                        self.call_sid, tool_name, tool_call_id,
+                    )
+                    result = await self._tool_executor.execute(tool_name, tool_args)
+                    # Return tool result to OpenAI
+                    await openai_ws.send(json.dumps({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": tool_call_id,
+                            "output": result,
+                        },
+                    }))
+                    # Trigger the next model response
+                    await openai_ws.send(json.dumps({"type": "response.create"}))
 
                 elif msg_type in ("error", "session.error"):
                     logger.error("[bridge %s] OpenAI error: %s", self.call_sid, msg)

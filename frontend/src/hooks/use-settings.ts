@@ -75,3 +75,26 @@ export function useUpdateTeamMember() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'team'] }),
   })
 }
+
+export interface AdminSettingsData {
+  feature_flags: Record<string, boolean>
+  max_tenants_limit: number
+  support_email: string
+}
+
+export function useAdminSettings() {
+  return useQuery({
+    queryKey: ['admin', 'settings'],
+    queryFn: () => api.get<AdminSettingsData>('/admin/settings'),
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateAdminSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Partial<AdminSettingsData>) =>
+      api.patch<AdminSettingsData>('/admin/settings', data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }),
+  })
+}

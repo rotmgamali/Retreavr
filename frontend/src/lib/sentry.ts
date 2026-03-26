@@ -12,7 +12,9 @@ export async function initSentry() {
   const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
   if (!dsn) return;
 
-  const Sentry = await import("@sentry/nextjs");
+  // webpackIgnore: optional dep — only available when @sentry/nextjs is installed
+  const Sentry = await import(/* webpackIgnore: true */ "@sentry/nextjs" as string).catch(() => null);
+  if (!Sentry) return;
 
   Sentry.init({
     dsn,

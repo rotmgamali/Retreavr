@@ -25,8 +25,21 @@ export interface KPIUpdate {
   revenue?: number
 }
 
+export interface ActiveCallWS {
+  id: string
+  callerName: string
+  callerPhone: string
+  agent: string
+  agentId: string
+  status: 'ringing' | 'connected' | 'on-hold'
+  duration: number
+  sentiment: 'positive' | 'neutral' | 'negative'
+  topic: string
+  waveform: number[]
+}
+
 type WsMessage =
-  | { type: 'call.started'; data: { agent_id: string; agent_name: string; call_id: string } }
+  | { type: 'call.started'; data: { agent_id: string; agent_name: string; call_id: string; caller_name?: string; caller_phone?: string; topic?: string } }
   | { type: 'call.ended'; data: { agent_id: string; agent_name: string; call_id: string; outcome?: string } }
   | { type: 'kpi.update'; data: KPIUpdate }
   | { type: 'agent.status_changed'; data: LiveAgent }
@@ -51,6 +64,7 @@ export function useDashboardEvents(orgId: string | null | undefined) {
   const [activities, setActivities] = useState<DashboardActivityEvent[]>([])
   const [kpiUpdate, setKpiUpdate] = useState<KPIUpdate | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [activeCalls, setActiveCalls] = useState<ActiveCallWS[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const unmounted = useRef(false)
@@ -92,7 +106,7 @@ export function useDashboardEvents(orgId: string | null | undefined) {
 
       switch (msg.type) {
         case 'call.started': {
-          const { agent_id, agent_name, call_id } = msg.data
+          const { agent_id, agent_name, call_id, caller_name, caller_phone, topic } = msg.data
           setActivities((prev) => [
             {
               id: `started-${call_id}`,
@@ -108,6 +122,24 @@ export function useDashboardEvents(orgId: string | null | undefined) {
               a.id === agent_id ? { ...a, status: 'On Call', secondsOnCall: 0 } : a
             )
           )
+          setActiveCalls((prev) => {
+            if (prev.some((c) => c.id === call_id)) return prev
+            return [
+              ...prev,
+              {
+                id: call_id,
+                callerName: caller_name ?? 'Unknown Caller',
+                callerPhone: caller_phone ?? '',
+                agent: agent_name,
+                agentId: agent_id,
+                status: 'connected' as const,
+                duration: 0,
+                sentiment: 'neutral' as const,
+                topic: topic ?? '',
+                waveform: Array.from({ length: 20 }, () => Math.random()),
+              },
+            ]
+          })
           break
         }
 
@@ -138,6 +170,7 @@ export function useDashboardEvents(orgId: string | null | undefined) {
                 : a
             )
           )
+          setActiveCalls((prev) => prev.filter((c) => c.id !== call_id))
           break
         }
 
@@ -169,5 +202,5 @@ export function useDashboardEvents(orgId: string | null | undefined) {
     }
   }, [connect])
 
-  return { agents, activities, kpiUpdate, isConnected, setAgents }
+  return { agents, activities, kpiUpdate, isConnected, setAgents, activeCalls }
 }

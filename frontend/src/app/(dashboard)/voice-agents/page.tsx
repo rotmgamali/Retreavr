@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { SkeletonToContent } from '@/components/animations'
 import { VoiceAgentsSkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
@@ -13,6 +13,8 @@ import { VoiceAgentConfigDrawer, type VoiceAgent } from '@/components/forms/voic
 import { StaggeredGrid, StaggeredItem, MotionCard, StatusPulse } from '@/components/animations'
 import { useAgents, useCreateAgent, useUpdateAgent } from '@/hooks/use-agents'
 import type { VoiceAgentApi } from '@/hooks/use-agents'
+import { useAgentPerformance } from '@/hooks/use-analytics'
+import type { AgentPerformance } from '@/hooks/use-analytics'
 
 // ── Default tools ──────────────────────────────────────────────────────────────
 const DEFAULT_TOOLS: VoiceAgent['tools'] = [
@@ -21,8 +23,16 @@ const DEFAULT_TOOLS: VoiceAgent['tools'] = [
   { id: 't3', name: 'CRM Lookup', enabled: false, description: 'Pull customer history from CRM' },
 ]
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function formatAvgDuration(seconds: number): string {
+  if (!seconds) return '—'
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 // ── Type mappers ───────────────────────────────────────────────────────────────
-function apiToUiAgent(agent: VoiceAgentApi): VoiceAgent {
+function apiToUiAgent(agent: VoiceAgentApi, perf?: AgentPerformance): VoiceAgent {
   const vad = (agent.vad_config ?? {}) as Record<string, unknown>
   return {
     id: agent.id,
@@ -37,9 +47,9 @@ function apiToUiAgent(agent: VoiceAgentApi): VoiceAgent {
     tools: (vad.tools as VoiceAgent['tools']) ?? DEFAULT_TOOLS,
     vadThreshold: (vad.threshold as number) ?? 0.5,
     maxCallDuration: (vad.max_call_duration as number) ?? 30,
-    callsToday: 0,
-    conversionRate: 0,
-    avgCallDuration: '—',
+    callsToday: perf?.total_calls ?? 0,
+    conversionRate: perf ? Math.round(perf.conversion_rate * 100) : 0,
+    avgCallDuration: perf ? formatAvgDuration(perf.avg_duration) : '—',
     createdAt: agent.created_at,
     updatedAt: agent.updated_at,
   }
@@ -67,8 +77,15 @@ export default function VoiceAgentsPage() {
   const { data, isLoading: agentsLoading } = useAgents()
   const createAgent = useCreateAgent()
   const updateAgent = useUpdateAgent()
+  const { data: perfData } = useAgentPerformance()
 
-  const agents: VoiceAgent[] = (data?.items ?? []).map(apiToUiAgent)
+  const perfMap = useMemo(() => {
+    const map: Record<string, AgentPerformance> = {}
+    ;(perfData ?? []).forEach(p => { map[p.agent_id] = p })
+    return map
+  }, [perfData])
+
+  const agents: VoiceAgent[] = (data?.items ?? []).map(a => apiToUiAgent(a, perfMap[a.id]))
 
   const [selectedAgent, setSelectedAgent] = useState<VoiceAgent | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)

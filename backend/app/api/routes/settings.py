@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_org, get_db, require_role
+from app.api.deps import get_current_active_user, get_current_org, get_db, require_role
 from app.models.organization import Organization
 from app.models.system import Integration, NotificationRule
 from app.models.user import User
@@ -102,14 +102,21 @@ async def update_org_settings(
     body: OrgSettingsUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     org = await db.get(Organization, org_id)
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(org, field, value)
+    updates = body.model_dump(exclude_unset=True)
+    # Only superadmins may change subscription_tier
+    if current_user.role != "superadmin":
+        updates.pop("subscription_tier", None)
+
+    allowed = {"name", "settings", "subscription_tier"}
+    for field, value in updates.items():
+        if field in allowed:
+            setattr(org, field, value)
 
     await db.flush()
     await db.refresh(org)

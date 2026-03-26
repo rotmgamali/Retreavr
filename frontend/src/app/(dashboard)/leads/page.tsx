@@ -287,7 +287,7 @@ function LeadDetailDialog({
               {editing ? (
                 <Select value={form?.assignedAgent} onValueChange={v => setField('assignedAgent', v)}>
                   <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>{AGENTS_LIST.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                  <SelectContent>{agentsList.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
                 </Select>
               ) : (
                 <div className="flex items-center gap-2 text-sm">
@@ -402,9 +402,12 @@ function LeadCard({ lead, onDragStart, onClick }: { lead: Lead; onDragStart: (e:
 export default function LeadPipelinePage() {
   const loading = usePageLoading(700)
   const { data: leadsData } = useLeads()
+  const { data: agentsData } = useAgents({ limit: 50 })
   const createLead = useCreateLead()
   const updateLead = useUpdateLead()
   const deleteLead = useDeleteLead()
+
+  const agentsList = (agentsData?.items ?? []).map(a => a.name)
 
   const leads: Lead[] = (leadsData?.items ?? []).map(apiToUiLead)
 
@@ -583,12 +586,13 @@ export default function LeadPipelinePage() {
       </div>
 
       {/* Dialogs */}
-      <AddLeadDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddLead} />
+      <AddLeadDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddLead} agentsList={agentsList} />
       <LeadDetailDialog
         lead={selectedLead}
         onClose={() => setSelectedLead(null)}
         onUpdate={handleUpdateLead}
         onDelete={handleDeleteLead}
+        agentsList={agentsList}
       />
     </div>
     </SkeletonToContent>

@@ -71,7 +71,8 @@ export function useRealtimeVoice(agentId: string) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
       
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 })
+      const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      const audioContext = new AudioContextClass!({ sampleRate: 24000 })
       audioContextRef.current = audioContext
       
       const source = audioContext.createMediaStreamSource(stream)
@@ -101,8 +102,8 @@ export function useRealtimeVoice(agentId: string) {
       source.connect(processor)
       processor.connect(audioContext.destination)
 
-    } catch (err: any) {
-      setError(err.message || 'Failed to start voice stream')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start voice stream')
       stop()
     }
   }, [agentId, stop])

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Zap, Globe, Shield, Bell } from "lucide-react";
+import { useAdminSettings, useUpdateAdminSettings } from "@/hooks/use-settings";
 
 interface FeatureFlag {
   id: string;
@@ -34,16 +35,39 @@ const scopeColor = (scope: FeatureFlag["scope"]) => {
 };
 
 export default function AdminSettingsPage() {
+  const adminSettingsQuery = useAdminSettings();
+  const updateAdminSettings = useUpdateAdminSettings();
+
   const [flags, setFlags] = useState<FeatureFlag[]>(INITIAL_FLAGS);
   const [maxTenantsLimit, setMaxTenantsLimit] = useState("500");
   const [supportEmail, setSupportEmail] = useState("support@retrevr.ai");
   const [saved, setSaved] = useState(false);
 
+  // Sync from API when data loads
+  useEffect(() => {
+    const data = adminSettingsQuery.data;
+    if (!data) return;
+    if (data.feature_flags) {
+      setFlags((prev) => prev.map((f) => ({
+        ...f,
+        enabled: data.feature_flags[f.id] ?? f.enabled,
+      })));
+    }
+    if (data.max_tenants_limit !== undefined) setMaxTenantsLimit(String(data.max_tenants_limit));
+    if (data.support_email) setSupportEmail(data.support_email);
+  }, [adminSettingsQuery.data]);
+
   const toggleFlag = (id: string) => {
     setFlags((prev) => prev.map((f) => f.id === id ? { ...f, enabled: !f.enabled } : f));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    const feature_flags = Object.fromEntries(flags.map((f) => [f.id, f.enabled]));
+    await updateAdminSettings.mutateAsync({
+      feature_flags,
+      max_tenants_limit: Number(maxTenantsLimit),
+      support_email: supportEmail,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -181,9 +205,10 @@ export default function AdminSettingsPage() {
       <div className="flex justify-end">
         <Button
           onClick={handleSave}
+          disabled={updateAdminSettings.isPending}
           className="bg-indigo-600 hover:bg-indigo-700 text-white"
         >
-          {saved ? "Saved!" : "Save Changes"}
+          {saved ? "Saved!" : updateAdminSettings.isPending ? "Saving…" : "Save Changes"}
         </Button>
       </div>
     </div>

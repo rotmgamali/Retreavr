@@ -14,21 +14,14 @@ import { IncomingCallModal } from '@/components/voice/incoming-call-modal'
 import { CallSummaryPanel } from '@/components/voice/call-summary-panel'
 import { useVoiceCall } from '@/hooks/use-voice-call'
 import { useAgents } from '@/hooks/use-agents'
-import { useCallHistory } from '@/hooks/use-call-history'
+import { useCallHistory, useQueuedCalls } from '@/hooks/use-call-history'
+import { useDashboardEvents, type ActiveCallWS } from '@/hooks/use-dashboard-events'
+import { useDashboardKPIs } from '@/hooks/use-analytics'
+import { useCurrentUser } from '@/hooks/use-current-user'
+import { useCallMonitor, type MonitorMode } from '@/hooks/use-call-monitor'
+import type { Call } from '@/lib/api-types'
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface ActiveCall {
-  id: string
-  callerName: string
-  callerPhone: string
-  agent: string
-  status: 'ringing' | 'connected' | 'on-hold'
-  duration: number
-  sentiment: 'positive' | 'neutral' | 'negative'
-  topic: string
-  waveform: number[]
-}
 
 interface QueueItem {
   id: string
@@ -45,6 +38,18 @@ function formatDuration(sec: number) {
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function mapCallToQueueItem(call: Call): QueueItem {
+  const waitMs = Date.now() - new Date(call.created_at).getTime()
+  return {
+    id: call.id,
+    callerName: call.phone_from || 'Unknown',
+    callerPhone: call.phone_from || '',
+    waitTime: Math.max(0, Math.floor(waitMs / 1000)),
+    priority: 'medium',
+    reason: call.direction === 'inbound' ? 'Inbound call' : 'Outbound call',
+  }
 }
 
 const SENTIMENT_CONFIG = {
@@ -92,7 +97,17 @@ function Waveform({ data, active }: { data: number[]; active: boolean }) {
 
 // ── Active call card ─────────────────────────────────────────────────────────
 
-function ActiveCallCard({ call }: { call: ActiveCall }) {
+interface ActiveCallCardProps {
+  call: ActiveCallWS & { displayDuration: number }
+  isMonitored: boolean
+  monitorMode: MonitorMode | null
+  onListen: () => void
+  onWhisper: () => void
+  onTakeover: () => void
+  onStopMonitor: () => void
+}
+
+function ActiveCallCard({ call, isMonitored, monitorMode, onListen, onWhisper, onTakeover, onStopMonitor }: ActiveCallCardProps) {
   const status = STATUS_CONFIG[call.status]
   const sentiment = SENTIMENT_CONFIG[call.sentiment]
 
@@ -109,6 +124,11 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
           <div className="flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${status.color} ${call.status === 'ringing' ? 'animate-pulse' : ''}`} />
             <p className="text-sm font-medium">{call.callerName}</p>
+            {isMonitored && (
+              <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded capitalize">
+                {monitorMode === 'listen_in' ? 'Listening' : monitorMode}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">{call.callerPhone}</p>
         </div>
@@ -122,7 +142,7 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
         <div className="text-right shrink-0">
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <Clock className="h-3 w-3" />
-            <span className="font-mono">{formatDuration(call.duration)}</span>
+            <span className="font-mono">{formatDuration(call.displayDuration)}</span>
           </div>
         </div>
       </div>
@@ -134,24 +154,45 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
         </span>
       </div>
 
-      <p className="text-xs text-slate-500 mb-3">{call.topic}</p>
+      {call.topic && <p className="text-xs text-slate-500 mb-3">{call.topic}</p>}
 
       <div className="flex gap-1.5 pt-2 border-t border-white/5">
-        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 flex-1">
+        <Button
+          size="sm"
+          variant={isMonitored && monitorMode === 'listen_in' ? 'default' : 'outline'}
+          className="h-7 px-2 text-xs gap-1 flex-1"
+          onClick={onListen}
+        >
           <Ear className="h-3 w-3" />
           Listen
         </Button>
-        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 flex-1">
+        <Button
+          size="sm"
+          variant={isMonitored && monitorMode === 'whisper' ? 'default' : 'outline'}
+          className="h-7 px-2 text-xs gap-1 flex-1"
+          onClick={onWhisper}
+        >
           <MessageSquare className="h-3 w-3" />
           Whisper
         </Button>
-        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 flex-1">
+        <Button
+          size="sm"
+          variant={isMonitored && monitorMode === 'takeover' ? 'default' : 'outline'}
+          className="h-7 px-2 text-xs gap-1 flex-1"
+          onClick={onTakeover}
+        >
           <Hand className="h-3 w-3" />
           Takeover
         </Button>
-        <Button size="sm" variant="destructive" className="h-7 px-2 text-xs">
-          <PhoneOff className="h-3 w-3" />
-        </Button>
+        {isMonitored ? (
+          <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" onClick={onStopMonitor}>
+            <WifiOff className="h-3 w-3" />
+          </Button>
+        ) : (
+          <Button size="sm" variant="destructive" className="h-7 px-2 text-xs" disabled>
+            <PhoneOff className="h-3 w-3" />
+          </Button>
+        )}
       </div>
     </motion.div>
   )
@@ -161,8 +202,6 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
 
 export default function CallCenterPage() {
   const loading = usePageLoading(600)
-  const [calls] = useState<ActiveCall[]>([])
-  const [queue] = useState<QueueItem[]>([])
   const [durations, setDurations] = useState<Record<string, number>>({})
   const [showDialer, setShowDialer] = useState(false)
   const [incomingCall, setIncomingCall] = useState<{
@@ -172,11 +211,22 @@ export default function CallCenterPage() {
     leadStatus?: string
   }>({ open: false, callerName: '', callerPhone: '' })
 
+  const { data: currentUser } = useCurrentUser()
+  const orgId = currentUser?.organization_id ?? null
+
+  const { activeCalls, isConnected: wsConnected } = useDashboardEvents(orgId)
+  const { data: queueData } = useQueuedCalls()
+  const { data: kpiData } = useDashboardKPIs()
+  const callMonitor = useCallMonitor()
+
   const voiceCall = useVoiceCall()
   const { data: agentsData } = useAgents({ limit: 50 })
   const { data: callHistoryData } = useCallHistory({ limit: 10 })
 
-  // Map agent data for dialer — cast status from API union to component union
+  // Build queue from REST data
+  const queue: QueueItem[] = (queueData?.items ?? []).map(mapCallToQueueItem)
+
+  // Map agent data for dialer
   const agentOptions = (agentsData?.items ?? [])
     .filter(a => a.status !== 'training')
     .map(a => ({
@@ -195,23 +245,35 @@ export default function CallCenterPage() {
     duration: c.duration ?? 0,
   }))
 
-  // Simulate live timer
+  // Duration timer for active calls
   useEffect(() => {
     const initial: Record<string, number> = {}
-    calls.forEach(c => { initial[c.id] = c.duration })
-    setDurations(initial)
+    activeCalls.forEach(c => { initial[c.id] = c.duration })
+    setDurations(prev => {
+      const next = { ...prev }
+      activeCalls.forEach(c => {
+        if (!(c.id in next)) next[c.id] = c.duration
+      })
+      // Remove entries for calls that ended
+      const activeIds = new Set(activeCalls.map(c => c.id))
+      Object.keys(next).forEach(id => { if (!activeIds.has(id)) delete next[id] })
+      return next
+    })
+  }, [activeCalls])
 
+  useEffect(() => {
+    if (activeCalls.length === 0) return
     const interval = setInterval(() => {
       setDurations(prev => {
         const next = { ...prev }
-        calls.forEach(c => {
-          if (c.status !== 'ringing') next[c.id] = (next[c.id] ?? c.duration) + 1
+        activeCalls.forEach(c => {
+          if (c.status !== 'ringing') next[c.id] = (next[c.id] ?? 0) + 1
         })
         return next
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [calls])
+  }, [activeCalls])
 
   const handleDial = useCallback((phoneNumber: string, agentId: string) => {
     voiceCall.startCall(phoneNumber, agentId, { direction: 'outbound' })
@@ -226,8 +288,7 @@ export default function CallCenterPage() {
     setIncomingCall(prev => ({ ...prev, open: false }))
   }, [])
 
-  const activeCalls = calls.filter(c => c.status === 'connected').length
-  const totalCalls = calls.length
+  const activeCount = activeCalls.filter(c => c.status === 'connected').length
 
   return (
     <SkeletonToContent loading={loading} skeleton={<CallCenterSkeleton />}>
@@ -250,9 +311,9 @@ export default function CallCenterPage() {
       {/* Stats bar */}
       <div className="flex gap-4 flex-wrap">
         <div className="flex items-center gap-2 text-sm">
-          <div className="flex items-center gap-1.5 text-green-400">
-            <Wifi className="h-4 w-4" />
-            <span className="font-semibold">{activeCalls}</span>
+          <div className={`flex items-center gap-1.5 ${wsConnected ? 'text-green-400' : 'text-slate-500'}`}>
+            {wsConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+            <span className="font-semibold">{activeCount}</span>
           </div>
           <span className="text-muted-foreground">active calls</span>
         </div>
@@ -260,9 +321,9 @@ export default function CallCenterPage() {
         <div className="flex items-center gap-2 text-sm">
           <div className="flex items-center gap-1.5 text-blue-400">
             <Phone className="h-4 w-4" />
-            <span className="font-semibold">{totalCalls}</span>
+            <span className="font-semibold">{kpiData?.total_calls ?? '—'}</span>
           </div>
-          <span className="text-muted-foreground">total calls</span>
+          <span className="text-muted-foreground">today</span>
         </div>
         <div className="text-white/10">|</div>
         <div className="flex items-center gap-2 text-sm">
@@ -330,20 +391,35 @@ export default function CallCenterPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 Active Calls
-                <span className="text-xs text-muted-foreground font-normal">Auto-refreshing</span>
+                <span className="text-xs text-muted-foreground font-normal">
+                  {wsConnected ? 'Live' : 'Connecting…'}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                <AnimatePresence>
-                  {calls.map(call => (
-                    <ActiveCallCard
-                      key={call.id}
-                      call={{ ...call, duration: durations[call.id] ?? call.duration }}
-                    />
-                  ))}
-                </AnimatePresence>
-              </div>
+              {activeCalls.length === 0 ? (
+                <div className="flex flex-col items-center py-8 text-center">
+                  <Phone className="h-8 w-8 text-slate-600 mb-2" />
+                  <p className="text-sm text-slate-500">No active calls</p>
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <AnimatePresence>
+                    {activeCalls.map(call => (
+                      <ActiveCallCard
+                        key={call.id}
+                        call={{ ...call, displayDuration: durations[call.id] ?? call.duration }}
+                        isMonitored={callMonitor.activeCallId === call.id && callMonitor.isConnected}
+                        monitorMode={callMonitor.activeCallId === call.id ? callMonitor.mode : null}
+                        onListen={() => callMonitor.setMode(call.id, 'listen_in')}
+                        onWhisper={() => callMonitor.setMode(call.id, 'whisper')}
+                        onTakeover={() => callMonitor.setMode(call.id, 'takeover')}
+                        onStopMonitor={() => callMonitor.disconnect()}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -401,15 +477,34 @@ export default function CallCenterPage() {
             </CardContent>
           </Card>
 
-          {/* Quick stats card */}
+          {/* Today's stats card */}
           <Card className="glass-card">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Today&apos;s Stats</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-xs text-slate-500 text-center py-2">
-                Live stats load from the analytics dashboard
-              </p>
+              {kpiData ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Total calls</span>
+                    <span className="font-semibold">{kpiData.total_calls}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Conversion rate</span>
+                    <span className="font-semibold text-green-400">{(kpiData.conversion_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Avg duration</span>
+                    <span className="font-semibold">{formatDuration(Math.round(kpiData.avg_call_duration))}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-400">Active leads</span>
+                    <span className="font-semibold">{kpiData.active_leads}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-slate-500 text-center py-2">Loading stats…</p>
+              )}
             </CardContent>
           </Card>
         </div>
