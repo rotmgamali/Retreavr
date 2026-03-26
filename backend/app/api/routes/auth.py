@@ -1,13 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, get_db
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.auth import (
-    AccessTokenResponse,
     ChangePasswordRequest,
     RefreshRequest,
     TokenResponse,
@@ -29,15 +28,21 @@ from app.services.auth import (
     store_refresh_token,
     verify_password,
 )
+from app.services.redis import check_auth_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserProfileResponse, status_code=status.HTTP_201_CREATED)
 async def register(
+    request: Request,
     body: UserRegisterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    if not await check_auth_rate_limit(client_ip, "register", window_seconds=60, max_calls=3):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many registration attempts")
+
     org = await db.get(Organization, body.organization_id)
     if not org or not org.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
@@ -61,9 +66,14 @@ async def register(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     body: UserLoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    if not await check_auth_rate_limit(client_ip, "login", window_seconds=60, max_calls=5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts")
+
     user = await authenticate_user(db, body.email, body.password)
     if not user:
         raise HTTPException(
@@ -86,7 +96,7 @@ async def login(
     return TokenResponse(access_token=access_token, refresh_token=refresh_value)
 
 
-@router.post("/refresh", response_model=AccessTokenResponse)
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     body: RefreshRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -103,7 +113,10 @@ async def refresh_token(
 
     await revoke_refresh_token(db, body.refresh_token)
     access_token = create_access_token(user.id, user.organization_id, user.role)
-    return AccessTokenResponse(access_token=access_token)
+    new_refresh_value = create_refresh_token_value()
+    await store_refresh_token(db, user.id, new_refresh_value)
+    await db.commit()
+    return TokenResponse(access_token=access_token, refresh_token=new_refresh_value)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

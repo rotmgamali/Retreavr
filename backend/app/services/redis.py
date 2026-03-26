@@ -72,3 +72,34 @@ async def check_rate_limit_redis(
 
     current_count = results[1]
     return current_count < max_calls
+
+
+async def check_auth_rate_limit(
+    ip: str,
+    action: str,
+    window_seconds: int = 60,
+    max_calls: int = 5,
+) -> bool:
+    """
+    IP-based sliding-window rate limiter for auth endpoints.
+    Returns True if within limits, False if exceeded.
+    Falls back to allowing the call if Redis is unavailable.
+    """
+    r = await get_redis()
+    if r is None:
+        return True  # no Redis → skip rate limiting
+
+    import time
+    key = f"ratelimit:auth:{action}:{ip}"
+    now = time.time()
+    window_start = now - window_seconds
+
+    pipe = r.pipeline()
+    pipe.zremrangebyscore(key, 0, window_start)
+    pipe.zcard(key)
+    pipe.zadd(key, {str(now): now})
+    pipe.expire(key, window_seconds + 1)
+    results = await pipe.execute()
+
+    current_count = results[1]
+    return current_count < max_calls
