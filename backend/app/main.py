@@ -75,6 +75,8 @@ from app.api.routes.campaigns import router as campaigns_router  # noqa: E402
 from app.api.routes.analytics import router as analytics_router  # noqa: E402
 from app.api.routes.settings import router as settings_router  # noqa: E402
 from app.api.routes.quotes import router as quotes_router  # noqa: E402
+from app.api.routes.admin import router as admin_router  # noqa: E402
+from app.api.routes.onboarding import router as onboarding_router  # noqa: E402
 
 app.include_router(knowledge_router, prefix=settings.api_prefix)
 app.include_router(organizations_router, prefix=settings.api_prefix)
@@ -85,6 +87,8 @@ app.include_router(campaigns_router, prefix=settings.api_prefix)
 app.include_router(analytics_router, prefix=settings.api_prefix)
 app.include_router(settings_router, prefix=settings.api_prefix)
 app.include_router(quotes_router, prefix=settings.api_prefix)
+app.include_router(admin_router, prefix=settings.api_prefix)
+app.include_router(onboarding_router, prefix=settings.api_prefix)
 
 # WebSocket routes (no API prefix — WS clients connect directly)
 from app.api.routes.ws_calls import router as ws_calls_router
