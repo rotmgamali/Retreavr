@@ -12,6 +12,10 @@ from app.schemas.quotes import BundleQuoteResult, PremiumBreakdown, QuoteRequest
 
 # ---------------------------------------------------------------------------
 # Rate tables
+#
+# TODO: These rate tables are hardcoded for now. They should eventually be
+# moved to org-level configuration so each tenant can manage their own
+# rates, factors, and discounts via the admin panel or API.
 # ---------------------------------------------------------------------------
 
 RATE_TABLE_VERSION = "2026-Q1-v1"
@@ -75,6 +79,46 @@ _MULTI_LINE_DISCOUNT = 0.10  # 10% per additional line, max 25%
 
 
 # ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+def _validate_auto_inputs(req: QuoteRequest) -> None:
+    """Validate auto insurance quote inputs."""
+    if req.age is not None:
+        if req.age < 16 or req.age > 100:
+            raise ValueError(f"Driver age must be between 16 and 100, got {req.age}")
+    if req.deductible is not None and req.deductible <= 0:
+        raise ValueError(f"Deductible must be positive, got {req.deductible}")
+    if req.vehicle_year is not None:
+        current_year = datetime.now().year
+        if req.vehicle_year < 1900 or req.vehicle_year > current_year + 2:
+            raise ValueError(f"Vehicle year must be between 1900 and {current_year + 2}, got {req.vehicle_year}")
+
+
+def _validate_home_inputs(req: QuoteRequest) -> None:
+    """Validate home insurance quote inputs."""
+    if req.property_value is not None and req.property_value <= 0:
+        raise ValueError(f"Property value must be positive, got {req.property_value}")
+    if req.deductible is not None and req.deductible <= 0:
+        raise ValueError(f"Deductible must be positive, got {req.deductible}")
+    if req.home_age is not None and req.home_age < 0:
+        raise ValueError(f"Home age cannot be negative, got {req.home_age}")
+    if req.claims_history is not None and req.claims_history < 0:
+        raise ValueError(f"Claims history cannot be negative, got {req.claims_history}")
+
+
+def _validate_life_inputs(req: QuoteRequest) -> None:
+    """Validate life insurance quote inputs."""
+    if req.age is not None:
+        if req.age < 18 or req.age > 85:
+            raise ValueError(f"Life insurance age must be between 18 and 85, got {req.age}")
+    if req.coverage_amount is not None and req.coverage_amount <= 0:
+        raise ValueError(f"Coverage amount must be positive, got {req.coverage_amount}")
+    if req.term_years is not None and req.term_years <= 0:
+        raise ValueError(f"Term years must be positive, got {req.term_years}")
+
+
+# ---------------------------------------------------------------------------
 # Calculators
 # ---------------------------------------------------------------------------
 
@@ -130,6 +174,7 @@ def _life_age_bracket(age: int) -> str:
 
 
 def _calculate_auto(req: QuoteRequest) -> QuoteResult:
+    _validate_auto_inputs(req)
     age_bracket = _auto_age_bracket(req.age or 35)
     base = _AUTO_BASE_RATES[age_bracket]
     adjustments: dict[str, float] = {}
@@ -178,6 +223,7 @@ def _calculate_auto(req: QuoteRequest) -> QuoteResult:
 
 
 def _calculate_home(req: QuoteRequest) -> QuoteResult:
+    _validate_home_inputs(req)
     property_value = req.property_value or 300000
     base = (property_value / 1000) * _HOME_BASE_RATE_PER_1000
     adjustments: dict[str, float] = {}
@@ -232,6 +278,7 @@ def _calculate_home(req: QuoteRequest) -> QuoteResult:
 
 
 def _calculate_life(req: QuoteRequest) -> QuoteResult:
+    _validate_life_inputs(req)
     age = req.age or 35
     gender = req.gender or "male"
     coverage = req.coverage_amount or 500000

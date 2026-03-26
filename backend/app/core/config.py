@@ -37,7 +37,9 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-mini-2024-07-18"
+    openai_realtime_model: str = "gpt-4o-realtime-preview-2024-10-01"
+    openai_post_call_model: str = "gpt-4-turbo-2024-04-09"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536
 
@@ -52,6 +54,9 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
     retrieval_top_k: int = 5
     retrieval_similarity_threshold: float = 0.7
+
+    # Voice telephony cost
+    cost_per_minute: float = 0.05  # USD per minute of voice call
 
     # S3/R2 Storage
     s3_bucket_name: str = "retrevr-recordings"

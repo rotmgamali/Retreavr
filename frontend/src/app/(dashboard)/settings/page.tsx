@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 
 import { Loader2, AlertTriangle, Link2, Upload, Trash2, Bell, ShieldCheck, Key, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { api } from '@/lib/api-client';
 import { toast as sonnerToast } from 'sonner';
 
@@ -324,6 +325,7 @@ export default function SettingsPage() {
 
   return (
     <SkeletonToContent loading={loading} skeleton={<SettingsSkeleton />}>
+    <ErrorBoundary>
     <div className="space-y-6 pb-10">
       {/* Header */}
       <div>
@@ -1220,6 +1222,7 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </div>
+    </ErrorBoundary>
     </SkeletonToContent>
   );
 }

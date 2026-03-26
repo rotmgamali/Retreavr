@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { CampaignWizard, type CampaignFormData } from '@/components/forms/campaign-wizard'
 import { useCampaigns, useCreateCampaign, useStartCampaign, useStopCampaign } from '@/hooks/use-campaigns'
 import type { CampaignApi } from '@/hooks/use-campaigns'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 // ─── Types & mappers ──────────────────────────────────────────────────────────
 
@@ -263,6 +264,7 @@ export default function CampaignsPage() {
 
   return (
     <SkeletonToContent loading={loading} skeleton={<CampaignsSkeleton />}>
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
@@ -454,6 +456,7 @@ export default function CampaignsPage() {
         onSaveDraft={handleSaveDraft}
       />
     </div>
+    </ErrorBoundary>
     </SkeletonToContent>
   )
 }

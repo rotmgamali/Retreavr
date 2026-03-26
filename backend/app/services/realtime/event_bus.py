@@ -8,7 +8,7 @@ Subscribers: WebSocket Connection Manager, Notification Service
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Awaitable
 
@@ -39,7 +39,7 @@ class Event:
     org_id: str
     payload: dict[str, Any]
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict:
         return {

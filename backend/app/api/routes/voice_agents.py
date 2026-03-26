@@ -2,11 +2,11 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_current_org, get_db, require_role
+from app.api.deps import get_current_org, get_db, require_role
 from app.models.user import User
 from app.services.audit import log_audit_event
 from app.models.voice_agents import AgentConfig, AgentKnowledgeBase, VoiceAgent
@@ -136,20 +136,22 @@ async def delete_voice_agent(
     await db.commit()
 
 
-@router.get("/{agent_id}/configs", response_model=list[AgentConfigResponse])
+@router.get("/{agent_id}/configs")
 async def list_agent_configs(
     agent_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     # Verify agent belongs to org first
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    result = await db.execute(
-        select(AgentConfig).where(AgentConfig.voice_agent_id == agent_id)
-    )
-    return result.scalars().all()
+    base = select(AgentConfig).where(AgentConfig.voice_agent_id == agent_id)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    result = await db.execute(base.limit(limit).offset(offset))
+    return {"items": result.scalars().all(), "total": total, "limit": limit, "offset": offset}
 
 
 @router.put("/{agent_id}/configs/{key}", response_model=AgentConfigResponse)

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 """
 Dashboard Event Stream WebSocket Route.
@@ -53,8 +53,18 @@ async def dashboard_stream(
     jwt_token = token
     if not jwt_token:
         try:
-            jwt_token = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            raw_msg = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            # Support both bare token string and {"token": "..."} JSON
+            try:
+                parsed = json.loads(raw_msg)
+                if isinstance(parsed, dict) and "token" in parsed:
+                    jwt_token = parsed["token"]
+                else:
+                    jwt_token = raw_msg
+            except (json.JSONDecodeError, TypeError):
+                jwt_token = raw_msg
         except (asyncio.TimeoutError, WebSocketDisconnect):
+            await websocket.send_text(json.dumps({"type": "error", "message": "Auth timeout"}))
             await websocket.close(code=1008)
             return
 
@@ -63,13 +73,15 @@ async def dashboard_stream(
         user_id = payload["sub"]
         token_org_id = payload.get("org_id", "")
         role = payload.get("role", "")
-    except WSAuthError:
-        await websocket.close(code=1008)
+    except WSAuthError as exc:
+        await websocket.send_text(json.dumps({"type": "error", "message": f"Invalid token: {exc}"}))
+        await websocket.close(code=4003)
         return
 
     # Verify the user has access to this org (or is superadmin)
     if role != "superadmin" and token_org_id != org_id:
-        await websocket.close(code=1008)
+        await websocket.send_text(json.dumps({"type": "error", "message": "org_mismatch: token org does not match requested org"}))
+        await websocket.close(code=4003)
         return
 
     conn = Connection(websocket=websocket, user_id=user_id, org_id=org_id, role=role)
@@ -77,8 +89,10 @@ async def dashboard_stream(
 
     dashboard_room = f"dashboard:{org_id}"
     org_room = f"org:{org_id}"
-    await connection_manager.subscribe(websocket, dashboard_room)
-    await connection_manager.subscribe(websocket, org_room)
+    if not await connection_manager.subscribe(websocket, dashboard_room):
+        return
+    if not await connection_manager.subscribe(websocket, org_room):
+        return
 
     await websocket.send_text(
         json.dumps({

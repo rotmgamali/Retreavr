@@ -31,6 +31,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { toast } from 'sonner'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -606,6 +607,7 @@ export default function LeadPipelinePage() {
 
   return (
     <SkeletonToContent loading={loading} skeleton={<LeadsSkeleton />}>
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -737,6 +739,7 @@ export default function LeadPipelinePage() {
         agentsList={agentsList}
       />
     </div>
+    </ErrorBoundary>
     </SkeletonToContent>
   )
 }

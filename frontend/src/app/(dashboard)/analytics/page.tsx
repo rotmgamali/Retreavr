@@ -17,6 +17,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { TrendingUp, TrendingDown, DollarSign, Users, Phone, Target, BarChart2, Plus, Play, Pause, CheckCircle, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { LoadingState } from '@/components/ui/loading-state'
 import { ErrorState } from '@/components/ui/error-state'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -390,6 +391,7 @@ export default function AnalyticsPage() {
   })) ?? []
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Header */}
       <div>
@@ -653,5 +655,6 @@ export default function AnalyticsPage() {
         </TabsContent>
       </Tabs>
     </div>
+    </ErrorBoundary>
   )
 }

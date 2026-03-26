@@ -64,6 +64,7 @@ async def upload_recording(
         Key=s3_key,
         Body=audio_bytes,
         ContentType=content_type,
+        ServerSideEncryption="AES256",
     )
     logger.info("Uploaded recording: bucket=%s key=%s bytes=%d", bucket, s3_key, len(audio_bytes))
 
@@ -127,11 +128,11 @@ async def store_twilio_recording_url(
 def generate_signed_url(
     org_id: uuid.UUID,
     call_id: uuid.UUID,
-    expires_in: int = 3600,
+    expires_in: int = 900,
 ) -> str:
     """
     Generate a pre-signed S3 URL for playback.
-    `expires_in` is in seconds (default: 1 hour).
+    `expires_in` is in seconds (default: 15 minutes).
     """
     s3_key = _recording_s3_key(org_id, call_id)
     s3 = _get_s3_client()
@@ -147,7 +148,7 @@ async def get_playback_url(
     db: AsyncSession,
     call_id: uuid.UUID,
     org_id: uuid.UUID,
-    expires_in: int = 3600,
+    expires_in: int = 900,
 ) -> Optional[str]:
     """
     Return a playback URL for the recording.

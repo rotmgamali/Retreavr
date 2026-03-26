@@ -74,15 +74,14 @@ async def check_rate_limit_redis(
     return current_count < max_calls
 
 
-async def check_auth_rate_limit(
+async def check_admin_rate_limit(
     ip: str,
-    action: str,
     window_seconds: int = 60,
-    max_calls: int = 5,
+    max_calls: int = 60,
 ) -> bool:
     """
-    IP-based sliding-window rate limiter for auth endpoints.
-    Returns True if within limits, False if exceeded.
+    IP-based sliding-window rate limiter for admin endpoints.
+    60 requests per minute per IP by default.
     Falls back to allowing the call if Redis is unavailable.
     """
     r = await get_redis()
@@ -90,7 +89,7 @@ async def check_auth_rate_limit(
         return True  # no Redis → skip rate limiting
 
     import time
-    key = f"ratelimit:auth:{action}:{ip}"
+    key = f"ratelimit:admin:{ip}"
     now = time.time()
     window_start = now - window_seconds
 
@@ -100,6 +99,42 @@ async def check_auth_rate_limit(
     pipe.zadd(key, {str(now): now})
     pipe.expire(key, window_seconds + 1)
     results = await pipe.execute()
+
+    current_count = results[1]
+    return current_count < max_calls
+
+async def check_auth_rate_limit(
+    ip: str,
+    action: str,
+    window_seconds: int = 60,
+    max_calls: int = 5,
+) -> bool:
+    """
+    IP-based sliding-window rate limiter for auth endpoints.
+    Returns True if within limits, False if exceeded.
+    Fail-closed: returns False (deny) when Redis is unavailable,
+    because auth endpoints must always be rate-limited.
+    """
+    r = await get_redis()
+    if r is None:
+        logger.warning("Redis unavailable – denying auth request (fail-closed)")
+        return False  # no Redis → deny (fail-closed for auth)
+
+    import time
+    key = f"ratelimit:auth:{action}:{ip}"
+    now = time.time()
+    window_start = now - window_seconds
+
+    try:
+        pipe = r.pipeline()
+        pipe.zremrangebyscore(key, 0, window_start)
+        pipe.zcard(key)
+        pipe.zadd(key, {str(now): now})
+        pipe.expire(key, window_seconds + 1)
+        results = await pipe.execute()
+    except Exception:
+        logger.warning("Redis error during auth rate limit check – denying (fail-closed)")
+        return False  # Redis error → deny (fail-closed for auth)
 
     current_count = results[1]
     return current_count < max_calls

@@ -54,16 +54,50 @@ class ConnectionManager:
             logger.info("WS disconnected: user=%s org=%s", conn.user_id, conn.org_id)
         return conn
 
-    async def subscribe(self, websocket: WebSocket, room: str) -> None:
+    async def subscribe(self, websocket: WebSocket, room: str) -> bool:
+        """Subscribe a connection to a room. Returns False and closes if unauthorized."""
         async with self._lock:
             conn = self._connections.get(id(websocket))
             if not conn:
-                return
+                return False
+
+            # Validate org-level access: extract org_id from room name
+            if not self._authorize_room(conn, room):
+                logger.warning(
+                    "WS unauthorized subscribe: user=%s org=%s tried room=%s",
+                    conn.user_id, conn.org_id, room,
+                )
+                try:
+                    await websocket.close(code=4003, reason="Unauthorized room subscription")
+                except Exception:
+                    pass
+                return False
+
             conn.rooms.add(room)
             if room not in self._rooms:
                 self._rooms[room] = set()
             self._rooms[room].add(conn)
         logger.debug("WS subscribed: user=%s room=%s", conn.user_id, room)
+        return True
+
+    @staticmethod
+    def _authorize_room(conn: Connection, room: str) -> bool:
+        """Check if a connection is allowed to join a room. Superadmins bypass."""
+        if conn.role == "superadmin":
+            return True
+
+        # Rooms with org-scoped access: org:{org_id}, dashboard:{org_id}
+        for prefix in ("org:", "dashboard:"):
+            if room.startswith(prefix):
+                room_org_id = room[len(prefix):]
+                return room_org_id == conn.org_id
+
+        # call:{call_id} rooms — we allow if the user is connected (call-level
+        # auth is handled at WebSocket connect time in ws_calls.py)
+        if room.startswith("call:"):
+            return True
+
+        return True
 
     async def unsubscribe(self, websocket: WebSocket, room: str) -> None:
         async with self._lock:

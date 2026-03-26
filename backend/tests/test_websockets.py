@@ -81,6 +81,26 @@ def patch_settings():
         yield mock_settings
 
 
+# Patch out the DB call in ws_calls.py so call monitor tests work without a real database
+@pytest.fixture(autouse=True)
+def patch_call_lookup():
+    """Mock get_call_by_id to return a fake call with matching org_id."""
+    fake_call = type("FakeCall", (), {"organization_id": uuid.UUID(ORG_A)})()
+
+    async def mock_get_call(db, call_id):
+        return fake_call
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+
+    with patch("app.services.telephony.call_manager.get_call_by_id", mock_get_call), \
+         patch("app.core.database.async_session", FakeSession):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Dashboard WebSocket: /ws/dashboard/{org_id}
 # ---------------------------------------------------------------------------
@@ -120,13 +140,13 @@ class TestDashboardAuth:
         assert msg["type"] == "error"
 
     def test_no_token_timeout_sends_error(self, client):
-        """No token at all → auth_timeout error after read (we send garbage JSON)."""
+        """Garbage text as first message → treated as bare token, fails auth."""
         with client.websocket_connect(f"/ws/dashboard/{ORG_A}") as ws:
-            # Send malformed JSON — triggers json.JSONDecodeError path
+            # Send malformed JSON — falls through to bare-token path, fails JWT decode
             ws.send_text("not-json")
             msg = json.loads(ws.receive_text())
         assert msg["type"] == "error"
-        assert "auth_timeout" in msg["message"]
+        assert "Invalid token" in msg["message"]
 
     def test_missing_sub_rejected(self, client):
         """Token without sub → error."""

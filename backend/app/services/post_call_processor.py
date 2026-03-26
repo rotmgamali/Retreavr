@@ -12,7 +12,6 @@ import json
 import logging
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -76,7 +75,7 @@ _SCORE_FIELDS = ["policy_type", "coverage_amount", "deductible", "current_carrie
 
 def _score_extracted_data(data: dict) -> tuple[float, dict[str, float], str]:
     """Compute propensity score from extracted fields. Returns (score, factors, recommendation)."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     factors: dict[str, float] = {}
     factors["has_policy_type"] = 1.0 if data.get("policy_type") else 0.0
@@ -92,7 +91,7 @@ def _score_extracted_data(data: dict) -> tuple[float, dict[str, float], str]:
     if renewal_date:
         try:
             renewal = datetime.strptime(renewal_date, "%Y-%m-%d")
-            days = (renewal - datetime.utcnow()).days
+            days = (renewal - datetime.now(timezone.utc)).days
             if 0 <= days <= 30:
                 factors["near_renewal"] = 1.0
             elif 30 < days <= 60:
@@ -163,7 +162,7 @@ async def run_post_call_processing(
 
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         response = await client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=settings.openai_post_call_model,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _EXTRACTION_SYSTEM},
@@ -172,7 +171,22 @@ async def run_post_call_processing(
             temperature=0.0,
         )
         raw = response.choices[0].message.content
-        extracted: dict = json.loads(raw)
+        try:
+            extracted: dict = json.loads(raw)
+        except (json.JSONDecodeError, TypeError) as parse_err:
+            logger.error(
+                "post_call_processor: failed to parse LLM response for call %s: %s — raw: %.500s",
+                call_db_id, parse_err, raw,
+            )
+            return
+
+        if not isinstance(extracted, dict):
+            logger.error(
+                "post_call_processor: LLM returned non-dict for call %s: %s",
+                call_db_id, type(extracted).__name__,
+            )
+            return
+
         logger.info(
             "post_call_processor: extraction done for call %s (policy_type=%s)",
             call_db_id,

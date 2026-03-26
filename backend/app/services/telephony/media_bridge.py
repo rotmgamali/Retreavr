@@ -5,9 +5,8 @@ Bridges Twilio Media Streams (μ-law 8 kHz) ↔ OpenAI Realtime (PCM 16-bit 24 k
 
 WebSocket endpoint: WS /ws/twilio/media/{call_sid}
 
-Audio conversion is done with audioop (stdlib) – no ffmpeg required.
+Audio conversion uses a pure-Python codec (struct-based) – no ffmpeg or audioop required.
 """
-import audioop
 import asyncio
 import base64
 import json
@@ -19,6 +18,7 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 
 from app.core.config import get_settings
+from app.services.audio_codec import mulaw_decode, mulaw_encode, resample_linear
 from app.services.voice.tools import ToolExecutor, build_tool_definitions
 from app.services.voice.transcript import TranscriptCapture
 
@@ -31,7 +31,7 @@ _TWILIO_SAMPLE_RATE = 8_000
 _OPENAI_SAMPLE_RATE = 24_000
 _UPSAMPLE_FACTOR = _OPENAI_SAMPLE_RATE // _TWILIO_SAMPLE_RATE  # 3
 
-_OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+_OPENAI_WS_URL = f"wss://api.openai.com/v1/realtime?model={settings.openai_realtime_model}"
 
 
 # ---------------------------------------------------------------------------
@@ -40,33 +40,18 @@ _OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview
 
 def mulaw_to_pcm16(mulaw_bytes: bytes) -> bytes:
     """Decode μ-law 8 kHz → PCM 16-bit 8 kHz."""
-    return audioop.ulaw2lin(mulaw_bytes, 2)
+    return mulaw_decode(mulaw_bytes)
 
 
 def pcm16_upsample(pcm_8k: bytes) -> bytes:
-    """Upsample PCM 16-bit from 8 kHz to 24 kHz (3×) using audioop.ratecv."""
-    upsampled, _ = audioop.ratecv(
-        pcm_8k,
-        2,               # sample width in bytes (16-bit)
-        1,               # mono
-        _TWILIO_SAMPLE_RATE,
-        _OPENAI_SAMPLE_RATE,
-        None,
-    )
-    return upsampled
+    """Upsample PCM 16-bit from 8 kHz to 24 kHz (3×)."""
+    return resample_linear(pcm_8k, _TWILIO_SAMPLE_RATE, _OPENAI_SAMPLE_RATE)
 
 
 def pcm16_to_mulaw(pcm_24k: bytes) -> bytes:
     """Downsample PCM 16-bit 24 kHz → PCM 16-bit 8 kHz, then encode μ-law."""
-    downsampled, _ = audioop.ratecv(
-        pcm_24k,
-        2,
-        1,
-        _OPENAI_SAMPLE_RATE,
-        _TWILIO_SAMPLE_RATE,
-        None,
-    )
-    return audioop.lin2ulaw(downsampled, 2)
+    downsampled = resample_linear(pcm_24k, _OPENAI_SAMPLE_RATE, _TWILIO_SAMPLE_RATE)
+    return mulaw_encode(downsampled)
 
 
 def twilio_media_to_openai_audio(payload_b64: str) -> bytes:

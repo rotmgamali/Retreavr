@@ -5,7 +5,7 @@ and persists notifications to DB.
 """
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,7 +66,7 @@ class NotificationDispatcher:
                     "event_type": event.event_type,
                     "event_id": event.event_id,
                     "payload": __import__("json").dumps(event.payload),
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                 },
             )
             await session.commit()

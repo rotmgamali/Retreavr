@@ -1,13 +1,19 @@
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.organization import Organization
+    from app.models.user import User
 
 
 class Notification(Base):
@@ -24,6 +30,9 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    organization: Mapped[Organization] = relationship("Organization")
+    user: Mapped[Optional[User]] = relationship("User")
+
 
 class NotificationRule(Base):
     __tablename__ = "notification_rules"
@@ -38,6 +47,8 @@ class NotificationRule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    organization: Mapped[Organization] = relationship("Organization")
+
 
 class Integration(Base):
     __tablename__ = "integrations"
@@ -51,6 +62,8 @@ class Integration(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    organization: Mapped[Organization] = relationship("Organization")
 
 
 class ApiKey(Base):
@@ -67,6 +80,21 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    organization: Mapped[Organization] = relationship("Organization")
+
+
+class DNCNumber(Base):
+    __tablename__ = "dnc_numbers"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "phone_number", name="uq_dnc_org_phone"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    phone_number: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    added_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -81,3 +109,6 @@ class AuditLog(Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    organization: Mapped[Organization] = relationship("Organization")
+    user: Mapped[Optional[User]] = relationship("User")

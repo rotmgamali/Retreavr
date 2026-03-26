@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import csv
 import hashlib
 import io
@@ -6,14 +8,15 @@ import secrets
 import uuid
 from typing import Annotated, Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_current_org, get_db, require_role
+from app.api.deps import get_current_org, get_db, require_role
 from app.models.organization import Organization
-from app.models.system import AuditLog, ApiKey, Integration, NotificationRule
+from app.models.system import AuditLog, ApiKey, DNCNumber, Integration, NotificationRule
 from app.models.user import User
 from app.services.audit import log_audit_event
 
@@ -135,15 +138,17 @@ async def update_org_settings(
 
 # --- Integrations ---
 
-@router.get("/integrations", response_model=list[IntegrationResponse])
+@router.get("/integrations")
 async def list_integrations(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
-    result = await db.execute(
-        select(Integration).where(Integration.organization_id == org_id)
-    )
-    return result.scalars().all()
+    base = select(Integration).where(Integration.organization_id == org_id)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    result = await db.execute(base.limit(limit).offset(offset))
+    return {"items": result.scalars().all(), "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("/integrations", response_model=IntegrationResponse, status_code=status.HTTP_201_CREATED)
@@ -205,15 +210,17 @@ async def update_integration(
 
 # --- Notification rules ---
 
-@router.get("/notifications", response_model=list[NotificationRuleResponse])
+@router.get("/notifications")
 async def list_notification_rules(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
-    result = await db.execute(
-        select(NotificationRule).where(NotificationRule.organization_id == org_id)
-    )
-    return result.scalars().all()
+    base = select(NotificationRule).where(NotificationRule.organization_id == org_id)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    result = await db.execute(base.limit(limit).offset(offset))
+    return {"items": result.scalars().all(), "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("/notifications", response_model=NotificationRuleResponse, status_code=status.HTTP_201_CREATED)
@@ -305,31 +312,48 @@ async def upload_dnc_csv(
     if not numbers:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid phone numbers found in CSV")
 
-    org = await db.get(Organization, org_id)
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    # Count existing DNC entries before insert
+    existing_count_result = await db.execute(
+        select(func.count()).select_from(DNCNumber).where(DNCNumber.organization_id == org_id)
+    )
+    existing_count: int = existing_count_result.scalar() or 0
 
-    current_settings: dict = org.settings or {}
-    existing_dnc: list = current_settings.get("dnc_list", [])
-    merged = list(set(existing_dnc) | numbers)
+    # Upsert numbers using ON CONFLICT DO NOTHING to skip duplicates
+    if numbers:
+        stmt = pg_insert(DNCNumber).values(
+            [
+                {
+                    "organization_id": org_id,
+                    "phone_number": n,
+                    "added_by": current_user.id,
+                }
+                for n in numbers
+            ]
+        ).on_conflict_do_nothing(constraint="uq_dnc_org_phone")
+        await db.execute(stmt)
+        await db.flush()
 
-    current_settings["dnc_list"] = merged
-    org.settings = current_settings
-    await db.flush()
+    # Count after insert
+    new_count_result = await db.execute(
+        select(func.count()).select_from(DNCNumber).where(DNCNumber.organization_id == org_id)
+    )
+    new_total: int = new_count_result.scalar() or 0
+    new_added = new_total - existing_count
+
     await log_audit_event(
         db, org_id, current_user.id,
         action="dnc.uploaded",
         resource_type="dnc_list",
-        details={"uploaded": len(numbers), "new_added": len(merged) - len(existing_dnc), "total": len(merged)},
+        details={"uploaded": len(numbers), "new_added": new_added, "total": new_total},
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
 
     return {
         "uploaded": len(numbers),
-        "total_dnc": len(merged),
-        "previously_existing": len(existing_dnc),
-        "new_added": len(merged) - len(existing_dnc),
+        "total_dnc": new_total,
+        "previously_existing": existing_count,
+        "new_added": new_added,
     }
 
 
@@ -339,12 +363,11 @@ async def get_dnc_list(
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
 ):
     """Return the current DNC list for the organisation."""
-    org = await db.get(Organization, org_id)
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-
-    dnc_list = (org.settings or {}).get("dnc_list", [])
-    return {"total": len(dnc_list), "numbers": dnc_list}
+    result = await db.execute(
+        select(DNCNumber.phone_number).where(DNCNumber.organization_id == org_id)
+    )
+    numbers: list[str] = list(result.scalars().all())
+    return {"total": len(numbers), "numbers": numbers}
 
 
 @router.delete("/dnc")
@@ -355,13 +378,9 @@ async def clear_dnc_list(
     current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     """Clear the entire DNC list for the organisation."""
-    org = await db.get(Organization, org_id)
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-
-    current_settings: dict = org.settings or {}
-    current_settings["dnc_list"] = []
-    org.settings = current_settings
+    await db.execute(
+        delete(DNCNumber).where(DNCNumber.organization_id == org_id)
+    )
     await db.flush()
     await log_audit_event(
         db, org_id, current_user.id,

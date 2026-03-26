@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { SkeletonToContent } from '@/components/animations'
 import { CallHistorySkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
@@ -362,6 +363,7 @@ export default function CallHistoryPage() {
 
   return (
     <SkeletonToContent loading={loading} skeleton={<CallHistorySkeleton />}>
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -503,6 +505,7 @@ export default function CallHistoryPage() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
     </SkeletonToContent>
   )
 }

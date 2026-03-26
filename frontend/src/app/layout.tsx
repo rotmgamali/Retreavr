@@ -5,6 +5,7 @@ import { ReactQueryProvider } from "@/providers/query-provider";
 import { AuthProvider } from "@/providers/auth-provider";
 import { SentryInit } from "./sentry-init";
 import { Toaster } from "sonner";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -36,7 +37,9 @@ export default function RootLayout({
       >
         <SentryInit />
         <ReactQueryProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ErrorBoundary>{children}</ErrorBoundary>
+          </AuthProvider>
         </ReactQueryProvider>
         <Toaster richColors position="top-right" />
       </body>

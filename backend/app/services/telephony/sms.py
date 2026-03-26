@@ -1,6 +1,5 @@
 """SMS sending via Twilio."""
 import logging
-from typing import Optional
 
 from twilio.rest import Client as TwilioClient
 

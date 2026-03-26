@@ -69,20 +69,18 @@ def _normalise_number(phone: str) -> str:
 async def is_on_dnc_list(db: AsyncSession, org_id: uuid.UUID, phone_number: str) -> bool:
     """
     Check whether a number is on the organisation's DNC list.
-    The DNC list is stored in organizations.settings["dnc_list"] as a list of E.164 strings.
+    Queries the dedicated dnc_numbers table.
     """
-    from app.models.organization import Organization
+    from app.models.system import DNCNumber
 
-    result = await db.execute(
-        select(Organization.settings).where(Organization.id == org_id)
-    )
-    row = result.scalar_one_or_none()
-    if not row:
-        return False
-
-    dnc_list: list[str] = row.get("dnc_list", []) if row else []
     normalised = _normalise_number(phone_number)
-    return any(_normalise_number(n) == normalised for n in dnc_list)
+    result = await db.execute(
+        select(DNCNumber.id).where(
+            DNCNumber.organization_id == org_id,
+            DNCNumber.phone_number == normalised,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 # ---------------------------------------------------------------------------

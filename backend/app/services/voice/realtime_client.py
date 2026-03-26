@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import audioop
 import base64
 import json
 import logging
@@ -22,11 +21,13 @@ from tenacity import (
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from app.core.config import get_settings
+from app.services.audio_codec import mulaw_decode, mulaw_encode, resample_linear
 
 logger = logging.getLogger(__name__)
 
 REALTIME_API_URL = "wss://api.openai.com/v1/realtime"
-REALTIME_MODEL = "gpt-4o-realtime-preview-2024-10-01"
+_settings = get_settings()
+REALTIME_MODEL = _settings.openai_realtime_model
 
 # Audio constants
 TWILIO_SAMPLE_RATE = 8000   # μ-law 8kHz from Twilio
@@ -76,19 +77,14 @@ EventHandler = Callable[[dict[str, Any]], None]
 
 def ulaw_to_pcm24k(ulaw_bytes: bytes) -> bytes:
     """Convert Twilio μ-law 8kHz audio to PCM 16-bit 24kHz for OpenAI."""
-    # μ-law → linear PCM 16-bit at 8kHz
-    pcm_8k = audioop.ulaw2lin(ulaw_bytes, 2)
-    # Resample 8kHz → 24kHz (3x upsample)
-    pcm_24k, _ = audioop.ratecv(pcm_8k, 2, AUDIO_CHANNELS, TWILIO_SAMPLE_RATE, OPENAI_SAMPLE_RATE, None)
-    return pcm_24k
+    pcm_8k = mulaw_decode(ulaw_bytes)
+    return resample_linear(pcm_8k, TWILIO_SAMPLE_RATE, OPENAI_SAMPLE_RATE)
 
 
 def pcm24k_to_ulaw(pcm_bytes: bytes) -> bytes:
     """Convert OpenAI PCM 16-bit 24kHz audio to Twilio μ-law 8kHz."""
-    # Resample 24kHz → 8kHz
-    pcm_8k, _ = audioop.ratecv(pcm_bytes, 2, AUDIO_CHANNELS, OPENAI_SAMPLE_RATE, TWILIO_SAMPLE_RATE, None)
-    # Linear PCM → μ-law
-    return audioop.lin2ulaw(pcm_8k, 2)
+    pcm_8k = resample_linear(pcm_bytes, OPENAI_SAMPLE_RATE, TWILIO_SAMPLE_RATE)
+    return mulaw_encode(pcm_8k)
 
 
 class RealtimeClient:

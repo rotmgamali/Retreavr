@@ -22,6 +22,7 @@ import { useCallMonitor, type MonitorMode } from '@/hooks/use-call-monitor'
 import type { Call } from '@/lib/api-types'
 import { api } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { ErrorBoundary } from '@/components/error-boundary'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,6 +295,7 @@ export default function CallCenterPage() {
 
   return (
     <SkeletonToContent loading={loading} skeleton={<CallCenterSkeleton />}>
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -541,6 +543,7 @@ export default function CallCenterPage() {
       onAccept={handleAcceptIncoming}
       onDecline={handleDeclineIncoming}
     />
+    </ErrorBoundary>
     </SkeletonToContent>
   )
 }

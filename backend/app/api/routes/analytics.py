@@ -4,12 +4,13 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import case, cast, func, select, Date
+from sqlalchemy import cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_org, get_db, require_role
+from app.core.config import get_settings
 from app.models.analytics import ABTest, ABTestResult, ABTestVariant
-from app.models.calls import Call, CallSentiment
+from app.models.calls import Call
 from app.models.leads import Lead
 from app.models.user import User
 from app.models.voice_agents import VoiceAgent
@@ -29,8 +30,7 @@ class ABTestUpdateRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None  # draft, running, paused, completed
 
-# Estimated cost per minute of call (USD)
-_COST_PER_MINUTE = 0.05
+_COST_PER_MINUTE = get_settings().cost_per_minute
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 

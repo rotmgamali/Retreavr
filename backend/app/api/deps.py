@@ -110,12 +110,24 @@ async def get_current_org_ws(
 async def get_current_org(
     request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> uuid.UUID:
     # Allow superadmins to impersonate a tenant via X-Tenant-Id header
     tenant_override = request.headers.get("x-tenant-id")
     if tenant_override and current_user.role == "superadmin":
         try:
-            return uuid.UUID(tenant_override)
+            tenant_id = uuid.UUID(tenant_override)
         except ValueError:
-            pass
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid X-Tenant-Id header",
+            )
+        from app.models.organization import Organization
+        org = await db.get(Organization, tenant_id)
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tenant not found",
+            )
+        return tenant_id
     return current_user.organization_id
