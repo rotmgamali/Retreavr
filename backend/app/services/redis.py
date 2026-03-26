@@ -122,8 +122,8 @@ async def check_auth_rate_limit(
     """
     r = await get_redis()
     if r is None:
-        logger.warning("Redis unavailable – denying auth request (fail-closed)")
-        return False  # no Redis → deny (fail-closed for auth)
+        logger.warning("Redis unavailable – allowing auth request (fail-open for auth)")
+        return True  # no Redis → allow (fail-open so login works without Redis)
 
     import time
     key = f"ratelimit:auth:{action}:{ip}"
@@ -138,8 +138,8 @@ async def check_auth_rate_limit(
         pipe.expire(key, window_seconds + 1)
         results = await pipe.execute()
     except Exception:
-        logger.warning("Redis error during auth rate limit check – denying (fail-closed)")
-        return False  # Redis error → deny (fail-closed for auth)
+        logger.warning("Redis error during auth rate limit check – allowing (fail-open)")
+        return True  # Redis error → allow (fail-open so login works)
 
     current_count = results[1]
     return current_count < max_calls

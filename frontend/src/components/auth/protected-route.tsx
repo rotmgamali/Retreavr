@@ -1,8 +1,8 @@
 'use client'
 
 import { useAuth } from '@/providers/auth-provider'
-import { useRouter } from 'next/navigation'
-import { useEffect, type ReactNode } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Spinner } from '@/components/animations/spinner'
 
 interface ProtectedRouteProps {
@@ -13,12 +13,19 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, user } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const redirectingRef = useRef(false)
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login')
+    if (!isLoading && !isAuthenticated && !redirectingRef.current) {
+      redirectingRef.current = true
+      router.replace('/login')
     }
-  }, [isLoading, isAuthenticated, router])
+    // Reset the guard when auth state changes back to authenticated
+    if (isAuthenticated) {
+      redirectingRef.current = false
+    }
+  }, [isLoading, isAuthenticated, router, pathname])
 
   if (isLoading) {
     return (

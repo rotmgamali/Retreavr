@@ -4,6 +4,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1'
 
 let accessToken: string | null = null
 
+
 function getStoredTokens() {
   if (typeof window === 'undefined') return { access: null, refresh: null }
   
@@ -120,9 +121,6 @@ async function request<T>(
         return request<T>(path, options, false)
       }
       clearTokens()
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login'
-      }
       throw new ApiError(401, 'Unauthorized', 'Session expired')
     }
 
