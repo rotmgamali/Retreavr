@@ -192,7 +192,7 @@ export default function PlatformAnalyticsPage() {
               <CardTitle className="text-sm font-semibold text-indigo-100">Call Status Breakdown</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {d.calls_by_status.slice(0, 5).map((s, i) => {
+              {(d.calls_by_status as any[]).slice(0, 5).map((s: any, i: number) => {
                 const max = d.calls_by_status[0]?.count || 1;
                 const pct = (s.count / max) * 100;
                 return (
