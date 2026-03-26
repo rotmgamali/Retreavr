@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -28,7 +29,10 @@ from app.services.auth import (
     store_refresh_token,
     verify_password,
 )
+from app.services.audit import log_audit_event
 from app.services.redis import check_auth_rate_limit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -76,6 +80,11 @@ async def login(
 
     user = await authenticate_user(db, body.email, body.password)
     if not user:
+        # Cannot write to audit_logs table (org_id is required), so use warning log
+        logger.warning(
+            "Failed login attempt for email=%s ip=%s",
+            body.email, client_ip,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -91,6 +100,14 @@ async def login(
     access_token = create_access_token(user.id, user.organization_id, user.role)
     refresh_value = create_refresh_token_value()
     await store_refresh_token(db, user.id, refresh_value)
+    await log_audit_event(
+        db, user.organization_id, user.id,
+        action="auth.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        details={"email": user.email},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_value)
@@ -121,11 +138,19 @@ async def refresh_token(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
     body: RefreshRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     await revoke_refresh_token(db, body.refresh_token)
+    await log_audit_event(
+        db, current_user.organization_id, current_user.id,
+        action="auth.logout",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
 
@@ -161,6 +186,7 @@ async def update_me(
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
+    request: Request,
     body: ChangePasswordRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -172,5 +198,12 @@ async def change_password(
 
     current_user.hashed_password = hash_password(body.new_password)
     await revoke_all_user_refresh_tokens(db, current_user.id)
+    await log_audit_event(
+        db, current_user.organization_id, current_user.id,
+        action="auth.password_change",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        ip_address=request.client.host if request.client else None,
+    )
     await db.flush()
     await db.commit()

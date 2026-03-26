@@ -224,6 +224,7 @@ async def _get_pending_leads(
             CampaignLead.campaign_id == campaign_id,
             CampaignLead.status == "pending",
         )
+        .limit(500)  # Process in batches to avoid loading all leads at once
     )
     return list(result.all())
 

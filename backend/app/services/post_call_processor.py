@@ -169,6 +169,7 @@ async def run_post_call_processing(
                 {"role": "user", "content": _EXTRACTION_USER.format(transcript=transcript_text)},
             ],
             temperature=0.0,
+            timeout=30.0,
         )
         raw = response.choices[0].message.content
         try:
@@ -250,6 +251,7 @@ async def run_post_call_processing(
         )
         db.add(interaction)
         await db.flush()
+        await db.commit()
 
         logger.info(
             "post_call_processor: lead %s updated (score=%.3f, status=%s)",

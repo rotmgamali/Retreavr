@@ -71,10 +71,21 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    if not settings.secret_key or settings.secret_key == "CHANGE-ME-IN-PRODUCTION":
+
+    # Reject empty, default, or weak SECRET_KEY values
+    _key = settings.secret_key
+    _key_lower = _key.lower()
+    _weak_patterns = ("change-me", "changeme", "retrevr", "secret", "password", "example")
+    if (
+        not _key
+        or len(_key) < 32
+        or any(p in _key_lower for p in _weak_patterns)
+    ):
         raise RuntimeError(
-            "SECRET_KEY must be set to a secure value. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+            "SECRET_KEY is missing, too short (< 32 chars), or contains a "
+            "well-known default pattern. "
+            "Generate a secure key with: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
         )
     if not settings.redis_url:
         warnings.warn("REDIS_URL not set — rate limiting will be disabled")

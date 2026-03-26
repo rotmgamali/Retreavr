@@ -6,6 +6,7 @@ Publishers: Call Manager, Lead Service, Agent Service
 Subscribers: WebSocket Connection Manager, Notification Service
 """
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -50,6 +51,8 @@ class Event:
             "timestamp": self.timestamp,
         }
 
+
+logger = logging.getLogger(__name__)
 
 # Type alias for subscriber callbacks
 Subscriber = Callable[[Event], Awaitable[None]]
@@ -125,8 +128,7 @@ class EventBus:
         try:
             await callback(event)
         except Exception:
-            # Subscriber errors must not crash the bus
-            pass
+            logger.exception("Event bus subscriber failed for event %s", event.event_type)
 
 
 # Global singleton

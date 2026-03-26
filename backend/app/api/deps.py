@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Annotated, List, Optional
 
@@ -5,6 +6,8 @@ from fastapi import Depends, HTTPException, Request, status, WebSocket, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.models.user import ROLE_HIERARCHY, User, UserRole
@@ -129,5 +132,9 @@ async def get_current_org(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Tenant not found",
             )
+        logger.warning(
+            "Superadmin %s impersonating tenant %s",
+            current_user.id, tenant_id,
+        )
         return tenant_id
     return current_user.organization_id

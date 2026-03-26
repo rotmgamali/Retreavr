@@ -173,6 +173,7 @@ async def run_post_processing(call_id: uuid.UUID, transcript: str) -> None:
                     )},
                 ],
                 temperature=0.1,
+                timeout=30.0,
             )
             sentiment_data = json.loads(resp.choices[0].message.content)
         except Exception:
@@ -192,6 +193,7 @@ async def run_post_processing(call_id: uuid.UUID, transcript: str) -> None:
                 )},
             ],
             temperature=0.2,
+            timeout=30.0,
         )
         call_score_data = json.loads(resp.choices[0].message.content)
     except Exception:

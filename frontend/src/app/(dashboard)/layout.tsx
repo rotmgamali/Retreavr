@@ -8,6 +8,7 @@ import { Header } from "@/components/layout/header";
 import { PageTransition } from "@/components/layout/page-transition";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { VoiceCallWidget } from "@/components/voice/voice-call-widget";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { useAuth } from "@/providers/auth-provider";
 import { api } from "@/lib/api-client";
 
@@ -103,9 +104,11 @@ export default function DashboardLayout({
         >
           <Header onMenuOpen={() => setMobileOpen(true)} />
           <main className="p-4 md:p-6 flex-1">
-            <AnimatePresence mode="wait">
-              <PageTransition key={pathname}>{children}</PageTransition>
-            </AnimatePresence>
+            <ErrorBoundary>
+              <AnimatePresence mode="wait">
+                <PageTransition key={pathname}>{children}</PageTransition>
+              </AnimatePresence>
+            </ErrorBoundary>
           </main>
         </motion.div>
 

@@ -148,7 +148,23 @@ async def list_integrations(
     base = select(Integration).where(Integration.organization_id == org_id)
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
     result = await db.execute(base.limit(limit).offset(offset))
-    return {"items": result.scalars().all(), "total": total, "limit": limit, "offset": offset}
+    items = [IntegrationResponse.model_validate(i) for i in result.scalars().all()]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@router.delete("/integrations/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_integration(
+    integration_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    integration = await db.get(Integration, integration_id)
+    if not integration or integration.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
+    await db.delete(integration)
+    await db.flush()
+    await db.commit()
 
 
 @router.post("/integrations", response_model=IntegrationResponse, status_code=status.HTTP_201_CREATED)
@@ -268,7 +284,7 @@ def _normalise_phone(raw: str) -> str:
     return re.sub(r"[^\d+]", "", raw.strip())
 
 
-@router.post("/dnc/upload")
+@router.post("/dnc/upload", response_model=DNCUploadResponse)
 async def upload_dnc_csv(
     file: Annotated[UploadFile, File(description="CSV file with phone numbers")],
     request: Request,
@@ -357,20 +373,30 @@ async def upload_dnc_csv(
     }
 
 
-@router.get("/dnc")
+@router.get("/dnc", response_model=DNCListResponse)
 async def get_dnc_list(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
-    """Return the current DNC list for the organisation."""
+    """Return the current DNC list for the organisation (paginated)."""
+    total_result = await db.execute(
+        select(func.count()).select_from(DNCNumber).where(DNCNumber.organization_id == org_id)
+    )
+    total: int = total_result.scalar() or 0
+
     result = await db.execute(
-        select(DNCNumber.phone_number).where(DNCNumber.organization_id == org_id)
+        select(DNCNumber.phone_number)
+        .where(DNCNumber.organization_id == org_id)
+        .limit(limit)
+        .offset(offset)
     )
     numbers: list[str] = list(result.scalars().all())
-    return {"total": len(numbers), "numbers": numbers}
+    return {"total": total, "numbers": numbers, "limit": limit, "offset": offset}
 
 
-@router.delete("/dnc")
+@router.delete("/dnc", response_model=DNCClearResponse)
 async def clear_dnc_list(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -488,13 +514,38 @@ class AuditLogResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/audit-logs")
+class PaginatedAuditLogResponse(BaseModel):
+    items: list[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class DNCUploadResponse(BaseModel):
+    uploaded: int
+    total_dnc: int
+    previously_existing: int
+    new_added: int
+
+
+class DNCListResponse(BaseModel):
+    total: int
+    numbers: list[str]
+    limit: int
+    offset: int
+
+
+class DNCClearResponse(BaseModel):
+    status: str
+
+
+@router.get("/audit-logs", response_model=PaginatedAuditLogResponse)
 async def list_audit_logs(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
     _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
     action: Optional[str] = None,
     resource_type: Optional[str] = None,
 ):

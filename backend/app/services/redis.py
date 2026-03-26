@@ -52,23 +52,28 @@ async def check_rate_limit_redis(
     """
     Redis-backed sliding-window rate limiter.
     Returns True if within limits, False if exceeded.
-    Falls back to allowing the call if Redis is unavailable.
+    Fail-closed: returns False (deny) when Redis is unavailable.
     """
     r = await get_redis()
     if r is None:
-        return True  # no Redis → skip rate limiting
+        logger.warning("Redis unavailable – denying outbound call (fail-closed)")
+        return False  # no Redis → deny (fail-closed)
 
     import time
     key = f"ratelimit:outbound:{org_id}"
     now = time.time()
     window_start = now - window_seconds
 
-    pipe = r.pipeline()
-    pipe.zremrangebyscore(key, 0, window_start)
-    pipe.zcard(key)
-    pipe.zadd(key, {str(now): now})
-    pipe.expire(key, window_seconds + 1)
-    results = await pipe.execute()
+    try:
+        pipe = r.pipeline()
+        pipe.zremrangebyscore(key, 0, window_start)
+        pipe.zcard(key)
+        pipe.zadd(key, {str(now): now})
+        pipe.expire(key, window_seconds + 1)
+        results = await pipe.execute()
+    except Exception:
+        logger.warning("Redis error during outbound rate limit check – denying (fail-closed)")
+        return False  # Redis error → deny (fail-closed)
 
     current_count = results[1]
     return current_count < max_calls

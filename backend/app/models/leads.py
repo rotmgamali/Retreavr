@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -32,6 +32,9 @@ class LeadStatus(str, PyEnum):
 
 class Lead(Base):
     __tablename__ = "leads"
+    __table_args__ = (
+        CheckConstraint("propensity_score >= 0 AND propensity_score <= 1", name="ck_propensity_score_range"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)

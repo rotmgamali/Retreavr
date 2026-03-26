@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import case, cast, Date, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,8 +147,8 @@ async def list_tenants(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, superadmin],
     _rl: Annotated[None, admin_rate_limit],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
     search: Optional[str] = None,
     status_filter: Optional[str] = None,
 ):
@@ -278,7 +278,6 @@ async def get_tenant(
         "slug": org.slug,
         "subscription_tier": org.subscription_tier,
         "is_active": org.is_active,
-        "settings": org.settings,
         "created_at": org.created_at.isoformat(),
         "updated_at": org.updated_at.isoformat(),
         "user_count": user_count,
@@ -437,7 +436,7 @@ async def list_tenant_calls(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, superadmin],
     _rl: Annotated[None, admin_rate_limit],
-    limit: int = 20,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
     limit = _clamp_limit(limit)
     result = await db.execute(
@@ -471,8 +470,8 @@ async def list_all_voice_agents(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, superadmin],
     _rl: Annotated[None, admin_rate_limit],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     limit = _clamp_limit(limit)
     total_result = await db.execute(select(func.count()).select_from(VoiceAgent))
@@ -513,8 +512,8 @@ async def list_all_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, superadmin],
     _rl: Annotated[None, admin_rate_limit],
-    limit: int = 100,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     limit = _clamp_limit(limit)
     total = (await db.execute(select(func.count()).select_from(User))).scalar_one()
@@ -911,8 +910,8 @@ async def list_audit_logs(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, superadmin],
     _rl: Annotated[None, admin_rate_limit],
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     limit = _clamp_limit(limit)
     total = (await db.execute(select(func.count()).select_from(AuditLog))).scalar_one()

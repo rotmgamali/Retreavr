@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum as PyEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -61,6 +61,9 @@ class AgentConfig(Base):
 
 class AgentKnowledgeBase(Base):
     __tablename__ = "agent_knowledge_bases"
+    __table_args__ = (
+        UniqueConstraint("voice_agent_id", "knowledge_document_id", name="uq_agent_knowledge"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     voice_agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("voice_agents.id", ondelete="CASCADE"), nullable=False, index=True)

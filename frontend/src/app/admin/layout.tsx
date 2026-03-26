@@ -7,6 +7,7 @@ import { AdminSidebar, AdminMobileDrawer } from "@/components/admin/admin-sideba
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { PageTransition } from "@/components/layout/page-transition";
 import { AdminHeader } from "@/components/admin/admin-header";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const ADMIN_SIDEBAR_KEY = "retrevr-admin-sidebar-collapsed";
 
@@ -56,9 +57,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         >
           <AdminHeader onMenuOpen={() => setMobileOpen(true)} />
           <main className="p-4 md:p-6 flex-1">
-            <AnimatePresence mode="wait">
-              <PageTransition key={pathname}>{children}</PageTransition>
-            </AnimatePresence>
+            <ErrorBoundary>
+              <AnimatePresence mode="wait">
+                <PageTransition key={pathname}>{children}</PageTransition>
+              </AnimatePresence>
+            </ErrorBoundary>
           </main>
         </motion.div>
       </div>

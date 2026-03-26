@@ -1,8 +1,25 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, field_validator
+
+
+def _validate_password_complexity(v: str) -> str:
+    """Enforce password complexity: 8+ chars, uppercase, lowercase, digit."""
+    errors: list[str] = []
+    if len(v) < 8:
+        errors.append("at least 8 characters")
+    if not re.search(r"[A-Z]", v):
+        errors.append("at least one uppercase letter")
+    if not re.search(r"[a-z]", v):
+        errors.append("at least one lowercase letter")
+    if not re.search(r"\d", v):
+        errors.append("at least one digit")
+    if errors:
+        raise ValueError("Password must contain: " + ", ".join(errors))
+    return v
 
 
 class UserRegisterRequest(BaseModel):
@@ -14,10 +31,8 @@ class UserRegisterRequest(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        return v
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class UserLoginRequest(BaseModel):
@@ -46,10 +61,8 @@ class ChangePasswordRequest(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        return v
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class UserProfileResponse(BaseModel):

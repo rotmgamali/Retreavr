@@ -81,8 +81,14 @@ async def save_onboarding(
     org.settings = settings
     await db.flush()
 
-    # Create the voice agent if provided
+    # Create the voice agent if provided — only admin/superadmin may do this
     if body.agent_name:
+        if current_user.role not in ("admin", "superadmin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only admin or superadmin users can create voice agents during onboarding",
+            )
+
         insurance_context = ""
         if body.insurance_types:
             insurance_context = f" You specialize in {', '.join(body.insurance_types)} insurance."

@@ -31,6 +31,7 @@ async def generate_embedding(text: str) -> list[float]:
         model=settings.openai_embedding_model,
         input=text,
         dimensions=settings.openai_embedding_dimensions,
+        timeout=30.0,
     )
     return response.data[0].embedding
 
@@ -47,6 +48,7 @@ async def generate_embeddings_batch(texts: list[str], batch_size: int = 100) -> 
             model=settings.openai_embedding_model,
             input=batch,
             dimensions=settings.openai_embedding_dimensions,
+            timeout=30.0,
         )
         all_embeddings.extend([d.embedding for d in response.data])
 
