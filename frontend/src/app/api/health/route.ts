@@ -1,24 +1,25 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
 
 export async function GET() {
+  const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
   try {
-    await pool.query("SELECT 1");
-    return NextResponse.json({
-      status: "healthy",
-      service: "Retrevr Insurance Platform",
-      database: "connected",
+    const res = await fetch(`${backendUrl}/health`, {
+      signal: AbortSignal.timeout(5000),
     });
-  } catch (e) {
-    console.error("[health] DB error:", e);
+    const ok = res.ok;
+    return NextResponse.json({
+      status: ok ? "healthy" : "degraded",
+      service: "Retrevr Insurance Platform",
+      backend: ok ? "connected" : "unreachable",
+    }, { status: ok ? 200 : 503 });
+  } catch {
     return NextResponse.json(
       {
         status: "degraded",
         service: "Retrevr Insurance Platform",
-        database: "disconnected",
-        error: String(e),
+        backend: "unreachable",
       },
-      { status: 503 }
+      { status: 503 },
     );
   }
 }

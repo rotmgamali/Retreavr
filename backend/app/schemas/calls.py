@@ -19,7 +19,6 @@ class CallBase(BaseModel):
 
 
 class CallCreate(CallBase):
-    organization_id: uuid.UUID
     agent_id: Optional[uuid.UUID] = None
     lead_id: Optional[uuid.UUID] = None
 

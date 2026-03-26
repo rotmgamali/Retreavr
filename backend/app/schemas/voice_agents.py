@@ -18,7 +18,7 @@ class VoiceAgentBase(BaseModel):
 
 
 class VoiceAgentCreate(VoiceAgentBase):
-    organization_id: uuid.UUID
+    pass
 
 
 class VoiceAgentUpdate(BaseModel):

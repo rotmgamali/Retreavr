@@ -16,7 +16,7 @@ class CampaignBase(BaseModel):
 
 
 class CampaignCreate(CampaignBase):
-    organization_id: uuid.UUID
+    pass
 
 
 class CampaignUpdate(BaseModel):

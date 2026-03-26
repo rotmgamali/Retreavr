@@ -20,7 +20,7 @@ class LeadBase(BaseModel):
 
 
 class LeadCreate(LeadBase):
-    organization_id: uuid.UUID
+    pass
 
 
 class LeadUpdate(BaseModel):
