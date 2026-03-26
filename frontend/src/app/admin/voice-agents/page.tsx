@@ -42,27 +42,8 @@ import { motion } from "framer-motion";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import Link from "next/link";
 
-interface AgentWithOrg {
-  id: string;
-  name: string;
-  persona: string;
-  voice: string;
-  status: string;
-  system_prompt: string;
-  organization_id: string;
-  organization_name: string;
-  organization_slug: string;
-  total_calls: number;
-  created_at: string;
-}
-
-const FALLBACK_AGENTS: AgentWithOrg[] = [
-  { id: "a1", name: "Sarah - Auto Insurance", persona: "Friendly auto insurance specialist", voice: "nova", status: "active", system_prompt: "You are a helpful auto insurance agent. Greet the caller warmly and help them understand their coverage options...", organization_id: "1", organization_name: "Apex Insurance Group", organization_slug: "apex", total_calls: 1200, created_at: "2025-01-15T00:00:00Z" },
-  { id: "a2", name: "Mike - Home Insurance", persona: "Expert home insurance advisor", voice: "echo", status: "active", system_prompt: "You are a knowledgeable home insurance agent...", organization_id: "1", organization_name: "Apex Insurance Group", organization_slug: "apex", total_calls: 890, created_at: "2025-02-01T00:00:00Z" },
-  { id: "a3", name: "Lisa - Life Insurance", persona: "Compassionate life insurance counselor", voice: "alloy", status: "draft", system_prompt: "You are a caring life insurance specialist...", organization_id: "2", organization_name: "Blue Harbor Agency", organization_slug: "blue-harbor", total_calls: 0, created_at: "2025-03-10T00:00:00Z" },
-  { id: "a4", name: "David - Claims Handler", persona: "Efficient claims processing specialist", voice: "onyx", status: "active", system_prompt: "You are a claims processing specialist...", organization_id: "2", organization_name: "Blue Harbor Agency", organization_slug: "blue-harbor", total_calls: 450, created_at: "2025-04-01T00:00:00Z" },
-  { id: "a5", name: "Emma - Quote Generator", persona: "Quick and accurate quote provider", voice: "shimmer", status: "active", system_prompt: "You are a fast and friendly agent helping callers get insurance quotes...", organization_id: "3", organization_name: "Coastal Coverage LLC", organization_slug: "coastal", total_calls: 310, created_at: "2025-05-01T00:00:00Z" },
-];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AgentWithOrg = Record<string, any>;
 
 const voiceColors: Record<string, string> = {
   alloy: "text-purple-400",
@@ -86,12 +67,11 @@ export default function GlobalVoiceAgentsPage() {
       api.get<{ items: AgentWithOrg[]; total: number }>(
         `/admin/voice-agents?limit=${pageSize}&offset=${(page - 1) * pageSize}`
       ),
-    placeholderData: { items: FALLBACK_AGENTS, total: FALLBACK_AGENTS.length },
     staleTime: 30_000,
   });
 
-  const allAgents = data?.items ?? FALLBACK_AGENTS;
-  const total = data?.total ?? FALLBACK_AGENTS.length;
+  const allAgents = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   const filtered = allAgents.filter((a) => {
     const matchSearch = !search ||

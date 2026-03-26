@@ -19,7 +19,7 @@ import {
 import { Search, User } from "lucide-react";
 
 interface AdminUser extends UserProfile {
-  org_name?: string;
+  organization_name?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -43,7 +43,7 @@ export default function UsersPage() {
       u.email.toLowerCase().includes(q) ||
       u.first_name.toLowerCase().includes(q) ||
       u.last_name.toLowerCase().includes(q) ||
-      (u.org_name ?? "").toLowerCase().includes(q)
+      (u.organization_name ?? "").toLowerCase().includes(q)
     );
   });
 

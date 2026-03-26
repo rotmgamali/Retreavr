@@ -52,80 +52,14 @@ import { staggerContainer, staggerItem } from "@/lib/motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-interface TenantDetail {
-  id: string;
-  name: string;
-  slug: string;
-  subscription_tier: string;
-  is_active: boolean;
-  settings: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-  total_users: number;
-  total_agents: number;
-  total_calls: number;
-  calls_this_month: number;
-  total_leads: number;
-  total_campaigns: number;
-}
-
-interface UserRow {
-  id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  role: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface AgentRow {
-  id: string;
-  name: string;
-  persona: string;
-  voice: string;
-  status: string;
-  system_prompt: string;
-  total_calls: number;
-  created_at: string;
-}
-
-interface CallRow {
-  id: string;
-  direction: string;
-  status: string;
-  duration: number | null;
-  phone_from: string;
-  phone_to: string;
-  agent_name: string;
-  lead_name: string;
-  sentiment_score: number | null;
-  created_at: string;
-}
-
-const FALLBACK_TENANT: TenantDetail = {
-  id: "1", name: "Apex Insurance Group", slug: "apex", subscription_tier: "enterprise",
-  is_active: true, settings: {}, created_at: "2025-01-10T00:00:00Z", updated_at: "2026-03-20T00:00:00Z",
-  total_users: 28, total_agents: 5, total_calls: 3120, calls_this_month: 480, total_leads: 540, total_campaigns: 8,
-};
-
-const FALLBACK_USERS: UserRow[] = [
-  { id: "u1", email: "john@apex.com", first_name: "John", last_name: "Smith", role: "admin", is_active: true, created_at: "2025-01-10T00:00:00Z" },
-  { id: "u2", email: "jane@apex.com", first_name: "Jane", last_name: "Doe", role: "agent", is_active: true, created_at: "2025-02-01T00:00:00Z" },
-  { id: "u3", email: "bob@apex.com", first_name: "Bob", last_name: "Wilson", role: "manager", is_active: true, created_at: "2025-03-15T00:00:00Z" },
-];
-
-const FALLBACK_AGENTS: AgentRow[] = [
-  { id: "a1", name: "Sarah - Auto Insurance", persona: "Friendly auto insurance specialist", voice: "nova", status: "active", system_prompt: "You are a helpful auto insurance agent...", total_calls: 1200, created_at: "2025-01-15T00:00:00Z" },
-  { id: "a2", name: "Mike - Home Insurance", persona: "Expert home insurance advisor", voice: "echo", status: "active", system_prompt: "You are a knowledgeable home insurance agent...", total_calls: 890, created_at: "2025-02-01T00:00:00Z" },
-  { id: "a3", name: "Lisa - Life Insurance", persona: "Compassionate life insurance counselor", voice: "alloy", status: "draft", system_prompt: "You are a caring life insurance specialist...", total_calls: 0, created_at: "2025-03-10T00:00:00Z" },
-];
-
-const FALLBACK_CALLS: CallRow[] = [
-  { id: "c1", direction: "outbound", status: "completed", duration: 245, phone_from: "+15551234567", phone_to: "+15559876543", agent_name: "Sarah - Auto Insurance", lead_name: "James Brown", sentiment_score: 0.8, created_at: "2026-03-24T14:30:00Z" },
-  { id: "c2", direction: "inbound", status: "completed", duration: 180, phone_from: "+15558765432", phone_to: "+15551234567", agent_name: "Mike - Home Insurance", lead_name: "Emily Davis", sentiment_score: 0.65, created_at: "2026-03-24T11:15:00Z" },
-  { id: "c3", direction: "outbound", status: "no-answer", duration: null, phone_from: "+15551234567", phone_to: "+15557654321", agent_name: "Sarah - Auto Insurance", lead_name: "Robert Miller", sentiment_score: null, created_at: "2026-03-23T16:45:00Z" },
-];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TenantDetail = Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type UserRow = Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AgentRow = Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CallRow = Record<string, any>;
 
 const roleColors: Record<string, string> = {
   admin: "bg-amber-500/20 text-amber-300",
@@ -154,28 +88,24 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
   const { data: tenant } = useQuery<TenantDetail>({
     queryKey: ["admin", "tenant", id],
     queryFn: () => api.get<TenantDetail>(`/admin/tenants/${id}`),
-    placeholderData: FALLBACK_TENANT,
     staleTime: 30_000,
   });
 
   const { data: usersResp } = useQuery<{ items: UserRow[] }>({
     queryKey: ["admin", "tenant", id, "users"],
     queryFn: () => api.get<{ items: UserRow[] }>(`/admin/tenants/${id}/users`),
-    placeholderData: { items: FALLBACK_USERS },
     staleTime: 60_000,
   });
 
   const { data: agentsResp } = useQuery<{ items: AgentRow[] }>({
     queryKey: ["admin", "tenant", id, "agents"],
     queryFn: () => api.get<{ items: AgentRow[] }>(`/admin/tenants/${id}/agents`),
-    placeholderData: { items: FALLBACK_AGENTS },
     staleTime: 60_000,
   });
 
   const { data: callsResp } = useQuery<{ items: CallRow[] }>({
     queryKey: ["admin", "tenant", id, "calls"],
     queryFn: () => api.get<{ items: CallRow[] }>(`/admin/tenants/${id}/calls`),
-    placeholderData: { items: FALLBACK_CALLS },
     staleTime: 60_000,
   });
 
@@ -198,10 +128,10 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
     },
   });
 
-  const t = tenant ?? FALLBACK_TENANT;
-  const users = usersResp?.items ?? FALLBACK_USERS;
-  const agents = agentsResp?.items ?? FALLBACK_AGENTS;
-  const calls = callsResp?.items ?? FALLBACK_CALLS;
+  const t = tenant ?? { id: "", name: "Loading...", slug: "", subscription_tier: "starter", is_active: true, settings: {}, created_at: "", updated_at: "" };
+  const users = usersResp?.items ?? [];
+  const agents = agentsResp?.items ?? [];
+  const calls = callsResp?.items ?? [];
 
   const handleImpersonate = () => {
     setActiveTenant(t.id, t.name);

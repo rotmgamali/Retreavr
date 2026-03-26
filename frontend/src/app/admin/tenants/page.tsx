@@ -52,21 +52,12 @@ interface TenantRow {
   slug: string;
   subscription_tier: string;
   is_active: boolean;
-  total_users: number;
-  total_agents: number;
-  total_calls: number;
-  calls_this_month: number;
-  total_leads: number;
+  user_count: number;
+  agent_count: number;
+  call_count: number;
+  lead_count: number;
   created_at: string;
 }
-
-const FALLBACK_TENANTS: TenantRow[] = [
-  { id: "1", name: "Apex Insurance Group", slug: "apex", subscription_tier: "enterprise", is_active: true, total_users: 28, total_agents: 5, total_calls: 3120, calls_this_month: 480, total_leads: 540, created_at: "2025-01-10T00:00:00Z" },
-  { id: "2", name: "Blue Harbor Agency", slug: "blue-harbor", subscription_tier: "pro", is_active: true, total_users: 12, total_agents: 3, total_calls: 1840, calls_this_month: 310, total_leads: 290, created_at: "2025-02-14T00:00:00Z" },
-  { id: "3", name: "Coastal Coverage LLC", slug: "coastal", subscription_tier: "starter", is_active: true, total_users: 5, total_agents: 1, total_calls: 620, calls_this_month: 95, total_leads: 88, created_at: "2025-03-01T00:00:00Z" },
-  { id: "4", name: "Delta Risk Partners", slug: "delta-risk", subscription_tier: "pro", is_active: false, total_users: 9, total_agents: 2, total_calls: 940, calls_this_month: 0, total_leads: 155, created_at: "2025-01-22T00:00:00Z" },
-  { id: "5", name: "Evergreen Benefits", slug: "evergreen", subscription_tier: "trial", is_active: true, total_users: 3, total_agents: 1, total_calls: 45, calls_this_month: 45, total_leads: 12, created_at: "2026-03-01T00:00:00Z" },
-];
 
 const tierColors: Record<string, string> = {
   enterprise: "border-amber-500/40 text-amber-300 bg-amber-500/10",
@@ -94,7 +85,6 @@ export default function TenantsPage() {
       api.get<{ items: TenantRow[]; total: number }>(
         `/admin/tenants?limit=${pageSize}&offset=${(page - 1) * pageSize}${statusParam}${searchParam}`
       ),
-    placeholderData: { items: FALLBACK_TENANTS, total: FALLBACK_TENANTS.length },
     staleTime: 30_000,
   });
 
@@ -117,8 +107,8 @@ export default function TenantsPage() {
     },
   });
 
-  const tenants = data?.items ?? FALLBACK_TENANTS;
-  const total = data?.total ?? FALLBACK_TENANTS.length;
+  const tenants = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -266,17 +256,17 @@ export default function TenantsPage() {
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">
                           <Users className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-sm">{t.total_users}</span>
+                          <span className="text-sm">{t.user_count}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">
                           <Bot className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-sm">{t.total_agents}</span>
+                          <span className="text-sm">{t.agent_count}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center text-sm">{t.calls_this_month.toLocaleString()}</TableCell>
-                      <TableCell className="text-center text-sm">{t.total_calls.toLocaleString()}</TableCell>
+                      <TableCell className="text-center text-sm">{(t.call_count ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-center text-sm">{(t.call_count ?? 0).toLocaleString()}</TableCell>
                       <TableCell>
                         <Badge
                           className={`text-[10px] border-0 ${t.is_active ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}

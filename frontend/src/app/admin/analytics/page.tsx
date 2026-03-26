@@ -35,60 +35,22 @@ import {
   Cell,
 } from "recharts";
 
-interface AnalyticsData {
-  top_tenants_by_calls: { id: string; name: string; slug: string; total_calls: number; calls_this_month: number }[];
-  daily_call_volume: { date: string; calls: number }[];
-  tenant_growth: { month: string; new_tenants: number }[];
-  calls_by_status: { status: string; count: number }[];
-  top_tenants_by_conversion: { id: string; name: string; total_leads: number; bound_leads: number; conversion_rate: number }[];
-  tier_distribution: { subscription_tier: string; count: number }[];
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnalyticsData = Record<string, any>;
 
-const FALLBACK: AnalyticsData = {
-  top_tenants_by_calls: [
-    { id: "1", name: "Apex Insurance Group", slug: "apex", total_calls: 3120, calls_this_month: 480 },
-    { id: "2", name: "Blue Harbor Agency", slug: "blue-harbor", total_calls: 1840, calls_this_month: 310 },
-    { id: "3", name: "Delta Risk Partners", slug: "delta-risk", total_calls: 2100, calls_this_month: 375 },
-    { id: "4", name: "Coastal Coverage LLC", slug: "coastal", total_calls: 620, calls_this_month: 95 },
-    { id: "5", name: "Evergreen Benefits", slug: "evergreen", total_calls: 45, calls_this_month: 45 },
-  ],
-  daily_call_volume: Array.from({ length: 30 }, (_, i) => ({
-    date: new Date(Date.now() - (29 - i) * 86400000).toISOString().split("T")[0],
-    calls: Math.floor(Math.random() * 200 + 80),
-  })),
-  tenant_growth: [
-    { month: "2025-04-01", new_tenants: 2 },
-    { month: "2025-05-01", new_tenants: 3 },
-    { month: "2025-06-01", new_tenants: 1 },
-    { month: "2025-07-01", new_tenants: 4 },
-    { month: "2025-08-01", new_tenants: 2 },
-    { month: "2025-09-01", new_tenants: 5 },
-    { month: "2025-10-01", new_tenants: 3 },
-    { month: "2025-11-01", new_tenants: 2 },
-    { month: "2025-12-01", new_tenants: 4 },
-    { month: "2026-01-01", new_tenants: 3 },
-    { month: "2026-02-01", new_tenants: 2 },
-    { month: "2026-03-01", new_tenants: 1 },
-  ],
-  calls_by_status: [
-    { status: "completed", count: 12400 },
-    { status: "no-answer", count: 2800 },
-    { status: "failed", count: 1200 },
-    { status: "busy", count: 800 },
-    { status: "in-progress", count: 120 },
-  ],
-  top_tenants_by_conversion: [
-    { id: "1", name: "Apex Insurance Group", total_leads: 540, bound_leads: 86, conversion_rate: 15.9 },
-    { id: "2", name: "Blue Harbor Agency", total_leads: 290, bound_leads: 38, conversion_rate: 13.1 },
-    { id: "3", name: "Coastal Coverage LLC", total_leads: 88, bound_leads: 10, conversion_rate: 11.4 },
-    { id: "4", name: "Delta Risk Partners", total_leads: 340, bound_leads: 34, conversion_rate: 10.0 },
-  ],
-  tier_distribution: [
-    { subscription_tier: "enterprise", count: 5 },
-    { subscription_tier: "pro", count: 9 },
-    { subscription_tier: "starter", count: 7 },
-    { subscription_tier: "trial", count: 3 },
-  ],
+const EMPTY_ANALYTICS: AnalyticsData = {
+  top_tenants_by_calls: [],
+  daily_call_volume: [],
+  call_volume: [],
+  tenant_growth: [],
+  calls_by_status: [],
+  top_tenants_by_conversion: [],
+  tier_distribution: [],
+  top_agents: [],
+  total_calls: 0,
+  total_leads: 0,
+  avg_call_duration: 0,
+  conversion_rate: 0,
 };
 
 const STATUS_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1", "#3b82f6"];
@@ -104,11 +66,10 @@ export default function PlatformAnalyticsPage() {
   const { data: analytics } = useQuery<AnalyticsData>({
     queryKey: ["admin", "analytics", "full"],
     queryFn: () => api.get<AnalyticsData>("/admin/analytics"),
-    placeholderData: FALLBACK,
     staleTime: 60_000,
   });
 
-  const d = analytics ?? FALLBACK;
+  const d = { ...EMPTY_ANALYTICS, ...analytics };
 
   return (
     <div className="space-y-6">

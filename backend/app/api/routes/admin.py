@@ -329,6 +329,46 @@ async def list_tenant_calls(
     }
 
 
+# ── All voice agents ──────────────────────────────────────────────────
+
+
+@router.get("/voice-agents")
+async def list_all_voice_agents(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, superadmin],
+    limit: int = 50,
+    offset: int = 0,
+):
+    total_result = await db.execute(select(func.count()).select_from(VoiceAgent))
+    total = total_result.scalar_one()
+
+    result = await db.execute(
+        select(VoiceAgent, Organization.name.label("org_name"), Organization.slug.label("org_slug"))
+        .outerjoin(Organization, VoiceAgent.organization_id == Organization.id)
+        .order_by(VoiceAgent.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = result.all()
+    return {
+        "items": [
+            {
+                "id": str(row.VoiceAgent.id),
+                "name": row.VoiceAgent.name,
+                "voice": row.VoiceAgent.voice,
+                "status": row.VoiceAgent.status,
+                "system_prompt": row.VoiceAgent.system_prompt or "",
+                "organization_id": str(row.VoiceAgent.organization_id),
+                "organization_name": row.org_name or "Unknown",
+                "organization_slug": row.org_slug or "",
+                "created_at": row.VoiceAgent.created_at.isoformat(),
+            }
+            for row in rows
+        ],
+        "total": total,
+    }
+
+
 # ── All users ─────────────────────────────────────────────────────────
 
 
