@@ -20,7 +20,7 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   // Track whether we are on a desktop viewport
   const [isDesktop, setIsDesktop] = useState(false);
@@ -29,8 +29,15 @@ export default function DashboardLayout({
   const [_onboardingChecked, setOnboardingChecked] = useState(false);
 
   // Check onboarding status and redirect if not completed
+  // Superadmins skip onboarding entirely
   useEffect(() => {
-    if (authLoading || !isAuthenticated) return;
+    if (authLoading || !isAuthenticated || !user) return;
+
+    // Superadmins never go through onboarding
+    if (user.role === "superadmin") {
+      setOnboardingChecked(true);
+      return;
+    }
 
     let cancelled = false;
     api
@@ -50,7 +57,7 @@ export default function DashboardLayout({
     return () => {
       cancelled = true;
     };
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, user, router]);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");

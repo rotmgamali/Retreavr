@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await authApi.login(email, password)
         const user = await authApi.getMe()
         setState({ user, isLoading: false, isAuthenticated: true })
-        router.push('/')
+        router.push(user.role === 'superadmin' ? '/admin' : '/')
       } catch (error) {
         setState((prev) => ({ ...prev, isLoading: false }))
         throw error

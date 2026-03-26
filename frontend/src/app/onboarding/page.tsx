@@ -221,13 +221,12 @@ export default function OnboardingPage() {
       setError(null)
       try {
         await api.post('/onboarding', data)
-        setDirection(1)
-        setStep((s) => s + 1)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to save progress')
-      } finally {
-        setSaving(false)
+      } catch {
+        // Save failed — continue anyway, will retry on next step or launch
       }
+      setSaving(false)
+      setDirection(1)
+      setStep((s) => s + 1)
     }
   }
 
