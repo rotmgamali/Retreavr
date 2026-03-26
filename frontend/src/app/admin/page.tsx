@@ -37,12 +37,12 @@ interface OverviewStats {
   total_users: number;
   total_calls: number;
   total_leads: number;
+  total_agents: number;
+  total_campaigns: number;
   mrr: number;
-  call_volume: {
-    today: number;
-    this_week: number;
-    this_month: number;
-  };
+  calls_today: number;
+  calls_this_week: number;
+  calls_this_month: number;
 }
 
 interface TenantRow {
@@ -51,64 +51,48 @@ interface TenantRow {
   slug: string;
   subscription_tier: string;
   is_active: boolean;
-  total_users: number;
-  total_agents: number;
-  total_calls: number;
-  calls_this_month: number;
-  total_leads: number;
+  user_count: number;
+  agent_count: number;
+  call_count: number;
+  lead_count: number;
   created_at: string;
 }
 
 interface AnalyticsData {
-  daily_call_volume: { date: string; calls: number }[];
-  tier_distribution: { subscription_tier: string; count: number }[];
+  total_calls: number;
+  total_leads: number;
+  avg_call_duration: number;
+  conversion_rate: number;
+  call_volume: { date: string; calls: number }[];
+  top_agents: { name: string; calls: number }[];
 }
-
-// Fallback data when API is unavailable
-const FALLBACK_STATS: OverviewStats = {
-  total_tenants: 24, active_tenants: 21, trial_tenants: 3, inactive_tenants: 0,
-  total_users: 312, total_calls: 18420, total_leads: 2840, mrr: 48500,
-  call_volume: { today: 142, this_week: 1230, this_month: 4820 },
-};
-
-const FALLBACK_TENANTS: TenantRow[] = [
-  { id: "1", name: "Apex Insurance Group", slug: "apex", subscription_tier: "enterprise", is_active: true, total_users: 28, total_agents: 5, total_calls: 3120, calls_this_month: 480, total_leads: 540, created_at: "2025-01-10T00:00:00Z" },
-  { id: "2", name: "Blue Harbor Agency", slug: "blue-harbor", subscription_tier: "pro", is_active: true, total_users: 12, total_agents: 3, total_calls: 1840, calls_this_month: 310, total_leads: 290, created_at: "2025-02-14T00:00:00Z" },
-  { id: "3", name: "Coastal Coverage LLC", slug: "coastal", subscription_tier: "starter", is_active: true, total_users: 5, total_agents: 1, total_calls: 620, calls_this_month: 95, total_leads: 88, created_at: "2025-03-01T00:00:00Z" },
-  { id: "4", name: "Delta Risk Partners", slug: "delta-risk", subscription_tier: "pro", is_active: true, total_users: 15, total_agents: 4, total_calls: 2100, calls_this_month: 375, total_leads: 340, created_at: "2025-03-15T00:00:00Z" },
-  { id: "5", name: "Evergreen Benefits", slug: "evergreen", subscription_tier: "trial", is_active: true, total_users: 3, total_agents: 1, total_calls: 45, calls_this_month: 45, total_leads: 12, created_at: "2026-03-01T00:00:00Z" },
-];
-
-const FALLBACK_CHART: { date: string; calls: number }[] = Array.from({ length: 30 }, (_, i) => ({
-  date: new Date(Date.now() - (29 - i) * 86400000).toISOString().split("T")[0],
-  calls: Math.floor(Math.random() * 200 + 80),
-}));
 
 export default function AdminDashboardPage() {
   const { data: stats, isLoading: statsLoading } = useQuery<OverviewStats>({
     queryKey: ["admin", "overview"],
     queryFn: () => api.get<OverviewStats>("/admin/overview"),
-    placeholderData: FALLBACK_STATS,
     staleTime: 30_000,
   });
 
   const { data: tenantsResp } = useQuery<{ items: TenantRow[] }>({
     queryKey: ["admin", "tenants", "list"],
     queryFn: () => api.get<{ items: TenantRow[] }>("/admin/tenants?limit=5"),
-    placeholderData: { items: FALLBACK_TENANTS },
     staleTime: 60_000,
   });
 
   const { data: analytics } = useQuery<AnalyticsData>({
     queryKey: ["admin", "analytics"],
     queryFn: () => api.get<AnalyticsData>("/admin/analytics"),
-    placeholderData: { daily_call_volume: FALLBACK_CHART, tier_distribution: [] },
     staleTime: 60_000,
   });
 
-  const s = stats ?? FALLBACK_STATS;
-  const recentTenants = tenantsResp?.items ?? FALLBACK_TENANTS;
-  const chartData = analytics?.daily_call_volume ?? FALLBACK_CHART;
+  const s: OverviewStats = stats ?? {
+    total_tenants: 0, active_tenants: 0, trial_tenants: 0, inactive_tenants: 0,
+    total_users: 0, total_calls: 0, total_leads: 0, total_agents: 0, total_campaigns: 0,
+    mrr: 0, calls_today: 0, calls_this_week: 0, calls_this_month: 0,
+  };
+  const recentTenants = tenantsResp?.items ?? [];
+  const chartData = analytics?.call_volume ?? [];
 
   const kpis = [
     { label: "Total Tenants", value: s.total_tenants, icon: Building2, color: "text-indigo-400", bg: "bg-indigo-500/10" },
@@ -183,7 +167,7 @@ export default function AdminDashboardPage() {
                 </div>
                 <span className="text-sm text-muted-foreground">Calls Today</span>
               </div>
-              <span className="text-lg font-bold text-indigo-400">{s.call_volume.today}</span>
+              <span className="text-lg font-bold text-indigo-400">{s.calls_today}</span>
             </div>
           </CardContent>
         </Card>
@@ -244,7 +228,7 @@ export default function AdminDashboardPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{tenant.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {tenant.total_users} users &middot; {tenant.total_agents} agents &middot; {tenant.calls_this_month} calls/mo
+                        {tenant.user_count} users &middot; {tenant.agent_count} agents &middot; {tenant.call_count} calls
                       </p>
                     </div>
                   </div>
@@ -277,7 +261,7 @@ export default function AdminDashboardPage() {
               <span className="text-xs text-muted-foreground">Calls This Week</span>
               <PhoneCall className="h-4 w-4 text-blue-400" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{s.call_volume.this_week.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-foreground">{s.calls_this_week.toLocaleString()}</p>
           </CardContent>
         </Card>
         <Card className="glass-card border-white/5">
@@ -286,7 +270,7 @@ export default function AdminDashboardPage() {
               <span className="text-xs text-muted-foreground">Calls This Month</span>
               <Phone className="h-4 w-4 text-indigo-400" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{s.call_volume.this_month.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-foreground">{s.calls_this_month.toLocaleString()}</p>
           </CardContent>
         </Card>
         <Card className="glass-card border-white/5">
