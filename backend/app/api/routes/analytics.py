@@ -7,6 +7,7 @@ from sqlalchemy import case, cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_org, get_db
+from app.models.analytics import ABTest, ABTestResult, ABTestVariant
 from app.models.calls import Call, CallSentiment
 from app.models.leads import Lead
 from app.models.voice_agents import VoiceAgent
@@ -59,72 +60,209 @@ async def get_conversion_analytics(
 async def get_conversion_weekly(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    weeks: int = Query(default=8, ge=1, le=52),
 ):
+    """Weekly conversion metrics from leads and calls tables."""
+    since = datetime.now(timezone.utc) - timedelta(weeks=weeks)
+    week_bucket = func.date_trunc("week", Lead.created_at).label("week")
+
+    lead_result = await db.execute(
+        select(
+            week_bucket,
+            func.count().label("total"),
+            func.count().filter(Lead.status == "qualified").label("qualified"),
+            func.count().filter(Lead.status == "quoted").label("quoted"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+        )
+        .where(Lead.organization_id == org_id, Lead.is_deleted.is_(False), Lead.created_at >= since)
+        .group_by(week_bucket)
+        .order_by(week_bucket)
+    )
+    lead_rows = lead_result.all()
+
+    call_week_bucket = func.date_trunc("week", Call.created_at).label("week")
+    call_result = await db.execute(
+        select(call_week_bucket, func.count().label("calls"))
+        .where(Call.organization_id == org_id, Call.is_deleted.is_(False), Call.created_at >= since)
+        .group_by(call_week_bucket)
+        .order_by(call_week_bucket)
+    )
+    calls_by_week = {str(r.week)[:10]: r.calls for r in call_result.all()}
+
     return [
-        {"week": "Week 1", "calls": 20, "qualified": 15, "quoted": 10, "bound": 5},
-        {"week": "Week 2", "calls": 25, "qualified": 18, "quoted": 12, "bound": 7},
-        {"week": "Week 3", "calls": 30, "qualified": 22, "quoted": 15, "bound": 10},
-        {"week": "Week 4", "calls": 40, "qualified": 30, "quoted": 20, "bound": 12},
+        {
+            "week": str(r.week)[:10],
+            "calls": calls_by_week.get(str(r.week)[:10], 0),
+            "qualified": r.qualified,
+            "quoted": r.quoted,
+            "bound": r.bound,
+        }
+        for r in lead_rows
     ]
 
 @router.get("/lead-sources")
 async def get_lead_sources(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
 ):
-    return [
-        {"name": "Google Ads", "value": 40},
-        {"name": "Facebook", "value": 30},
-        {"name": "Email", "value": 20},
-        {"name": "Referral", "value": 10},
-    ]
+    """Lead counts grouped by insurance type as the primary segmentation dimension."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(
+            func.coalesce(Lead.insurance_type, "unknown").label("name"),
+            func.count().label("value"),
+        )
+        .where(Lead.organization_id == org_id, Lead.is_deleted.is_(False), Lead.created_at >= since)
+        .group_by(Lead.insurance_type)
+        .order_by(func.count().desc())
+    )
+    rows = result.all()
+    return [{"name": r.name, "value": r.value} for r in rows]
 
 @router.get("/ab-tests")
 async def get_ab_tests(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
 ):
-    return [
-        {
-            "id": "test-1",
-            "name": "Aggressive vs Friendly Greeting",
-            "status": "running",
-            "confidence": 85,
-            "variantA": {"name": "Friendly Sarah", "convRate": 12.5, "calls": 120},
-            "variantB": {"name": "Aggressive Marcus", "convRate": 11.2, "calls": 115}
-        }
-    ]
+    """A/B tests with variants and latest result metrics."""
+    tests_result = await db.execute(
+        select(ABTest)
+        .where(ABTest.organization_id == org_id)
+        .order_by(ABTest.created_at.desc())
+    )
+    tests = tests_result.scalars().all()
 
-@router.get("/costs")
+    output = []
+    for test in tests:
+        variants_result = await db.execute(
+            select(ABTestVariant).where(ABTestVariant.ab_test_id == test.id)
+        )
+        variants = variants_result.scalars().all()
+
+        results_result = await db.execute(
+            select(ABTestResult)
+            .where(ABTestResult.ab_test_id == test.id)
+            .order_by(ABTestResult.created_at.desc())
+        )
+        results = results_result.scalars().all()
+
+        variant_metrics: dict = {}
+        confidence = None
+        for res in results:
+            if res.variant_id and res.metrics:
+                variant_metrics.setdefault(str(res.variant_id), res.metrics)
+            if confidence is None and res.metrics and "confidence" in res.metrics:
+                confidence = res.metrics["confidence"]
+
+        variants_data = [
+            {
+                "id": str(v.id),
+                "name": v.name,
+                "calls": variant_metrics.get(str(v.id), {}).get("calls", 0),
+                "convRate": variant_metrics.get(str(v.id), {}).get("conversion_rate", 0.0),
+                "traffic_weight": v.traffic_weight,
+            }
+            for v in variants
+        ]
+
+        entry: dict = {
+            "id": str(test.id),
+            "name": test.name,
+            "status": test.status,
+            "confidence": confidence,
+            "variants": variants_data,
+        }
+        if len(variants_data) >= 1:
+            entry["variantA"] = variants_data[0]
+        if len(variants_data) >= 2:
+            entry["variantB"] = variants_data[1]
+        output.append(entry)
+
+    return output
+
+@router.get("/costs-legacy")
 async def get_costs_legacy(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    months: int = Query(default=6, ge=1, le=24),
 ):
+    """Monthly cost rollup calculated from call duration at ${_COST_PER_MINUTE}/min."""
+    since = datetime.now(timezone.utc) - timedelta(days=months * 30)
+    month_bucket = func.date_trunc("month", Call.created_at).label("month")
+    result = await db.execute(
+        select(
+            month_bucket,
+            func.sum(Call.duration).label("total_duration_sec"),
+            func.count().label("total_calls"),
+        )
+        .where(Call.organization_id == org_id, Call.is_deleted.is_(False), Call.created_at >= since)
+        .group_by(month_bucket)
+        .order_by(month_bucket)
+    )
+    rows = result.all()
     return [
-        {"month": "Jan", "revenue": 10000, "apiCost": 500, "telephony": 800, "infra": 200},
-        {"month": "Feb", "revenue": 12000, "apiCost": 600, "telephony": 950, "infra": 200},
+        {
+            "month": str(r.month)[:7],
+            "calls": r.total_calls,
+            "telephony": round(((r.total_duration_sec or 0) / 60.0) * _COST_PER_MINUTE, 2),
+            "apiCost": round(((r.total_duration_sec or 0) / 60.0) * 0.006, 2),
+            "infra": 0,
+        }
+        for r in rows
     ]
 
 @router.get("/call-volume")
 async def get_call_volume_legacy(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    period: str = "daily"
+    days: int = Query(default=1, ge=1, le=30),
 ):
-    """Simple list of counts for charts."""
+    """Hourly call counts for the requested number of days."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    hour_bucket = func.date_trunc("hour", Call.created_at).label("timestamp")
+    result = await db.execute(
+        select(
+            hour_bucket,
+            func.count().label("count"),
+            func.count().filter(Call.status == "completed").label("answered"),
+        )
+        .where(Call.organization_id == org_id, Call.is_deleted.is_(False), Call.created_at >= since)
+        .group_by(hour_bucket)
+        .order_by(hour_bucket)
+    )
+    rows = result.all()
     return [
-        {"timestamp": (datetime.now() - timedelta(hours=i)).isoformat(), "count": 10, "answered": 8}
-        for i in range(24)
+        {
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "count": r.count,
+            "answered": r.answered,
+        }
+        for r in rows
     ]
 
 @router.get("/heatmap")
 async def get_heatmap(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=90, ge=1, le=365),
 ):
-    """Mock heatmap data."""
+    """Call volume heatmap: day-of-week (0=Sun) × hour-of-day."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(
+            func.extract("dow", Call.created_at).label("day"),
+            func.extract("hour", Call.created_at).label("hour"),
+            func.count().label("value"),
+        )
+        .where(Call.organization_id == org_id, Call.is_deleted.is_(False), Call.created_at >= since)
+        .group_by("day", "hour")
+        .order_by("day", "hour")
+    )
+    rows = result.all()
+    grid = {(int(r.day), int(r.hour)): r.value for r in rows}
     return [
-        {"day": d, "hour": h, "value": 5}
+        {"day": d, "hour": h, "value": grid.get((d, h), 0)}
         for d in range(7) for h in range(24)
     ]
 
@@ -351,14 +489,28 @@ async def get_dashboard(
 async def get_conversion_funnel_legacy(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    days: int = Query(default=30, ge=1, le=365),
 ):
-    """Old format for funnel used by frontend."""
+    """Conversion funnel in stage-list format for frontend charts."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(
+            func.count().label("total"),
+            func.count().filter(Lead.status == "contacted").label("contacted"),
+            func.count().filter(Lead.status == "qualified").label("qualified"),
+            func.count().filter(Lead.status == "quoted").label("quoted"),
+            func.count().filter(Lead.status == "bound").label("bound"),
+        )
+        .select_from(Lead)
+        .where(Lead.organization_id == org_id, Lead.is_deleted.is_(False), Lead.created_at >= since)
+    )
+    row = result.one()
     return [
-        {"stage": "Leads", "count": 100},
-        {"stage": "Contacted", "count": 80},
-        {"stage": "Qualified", "count": 60},
-        {"stage": "Quoted", "count": 40},
-        {"stage": "Bound", "count": 20},
+        {"stage": "Leads", "count": row.total},
+        {"stage": "Contacted", "count": row.contacted},
+        {"stage": "Qualified", "count": row.qualified},
+        {"stage": "Quoted", "count": row.quoted},
+        {"stage": "Bound", "count": row.bound},
     ]
 
 @router.get("/funnel")
@@ -676,12 +828,40 @@ async def get_live_agents(
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
 ):
-    """MOCKED live agents for demo."""
-    # Return empty list or mocks
-    return [
-        {"id": str(uuid.uuid4()), "name": "Andrew (Mock)", "status": "active", "current_call": None},
-        {"id": str(uuid.uuid4()), "name": "Sarah (Mock)", "status": "idle", "current_call": None},
-    ]
+    """Active voice agents with live call status (calls started within the last 15 minutes)."""
+    active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+    agents_result = await db.execute(
+        select(VoiceAgent)
+        .where(VoiceAgent.organization_id == org_id, VoiceAgent.status == "active")
+        .order_by(VoiceAgent.name)
+    )
+    agents = agents_result.scalars().all()
+
+    output = []
+    for agent in agents:
+        recent_q = await db.execute(
+            select(Call.id, Call.status, Call.created_at)
+            .where(
+                Call.agent_id == agent.id,
+                Call.is_deleted.is_(False),
+                Call.created_at >= active_cutoff,
+            )
+            .order_by(Call.created_at.desc())
+            .limit(1)
+        )
+        recent_call = recent_q.first()
+        current_call = None
+        if recent_call and recent_call.status == "in-progress":
+            current_call = {"call_id": str(recent_call.id), "status": recent_call.status}
+
+        output.append({
+            "id": str(agent.id),
+            "name": agent.name,
+            "status": "on-call" if current_call else agent.status,
+            "current_call": current_call,
+        })
+    return output
 
 @router.get("/campaigns/{campaign_id}")
 async def get_campaign_roi(
