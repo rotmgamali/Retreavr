@@ -6,6 +6,7 @@ import { LeadsSkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
 import { useLeads, useCreateLead, useUpdateLead, useDeleteLead } from '@/hooks/use-leads'
 import type { LeadApi } from '@/hooks/use-leads'
+import { useAgents } from '@/hooks/use-agents'
 import { GripVertical, Phone, Mail, Calendar, MoreHorizontal, Plus, Search, Filter, DollarSign, User, Clock } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -83,23 +84,23 @@ const INSURANCE_TYPES = [
   'Professional Liability', 'D&O Insurance', 'Commercial Package',
 ]
 
-const AGENTS_LIST = ['Sarah AI', 'Mike AI', 'Alex AI', 'Jordan AI', 'Casey AI']
-
 // ── Add Lead Dialog ───────────────────────────────────────────────────────────
 
 function AddLeadDialog({
   open,
   onClose,
   onAdd,
+  agentsList,
 }: {
   open: boolean
   onClose: () => void
   onAdd: (lead: Lead) => void
+  agentsList: string[]
 }) {
   const [form, setForm] = useState({
     name: '', email: '', phone: '', company: '',
     insuranceType: 'Auto Insurance', estimatedPremium: '',
-    assignedAgent: 'Sarah AI', source: 'Website', notes: '', stage: 'new' as Stage,
+    assignedAgent: agentsList[0] ?? '', source: 'Website', notes: '', stage: 'new' as Stage,
   })
 
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
@@ -116,7 +117,7 @@ function AddLeadDialog({
       notes: form.notes || undefined, lastContact: 'just now',
       stage: form.stage,
     })
-    setForm({ name: '', email: '', phone: '', company: '', insuranceType: 'Auto Insurance', estimatedPremium: '', assignedAgent: 'Sarah AI', source: 'Website', notes: '', stage: 'new' })
+    setForm({ name: '', email: '', phone: '', company: '', insuranceType: 'Auto Insurance', estimatedPremium: '', assignedAgent: agentsList[0] ?? '', source: 'Website', notes: '', stage: 'new' })
     onClose()
   }
 
@@ -177,7 +178,7 @@ function AddLeadDialog({
               <Select value={form.assignedAgent} onValueChange={v => set('assignedAgent', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {AGENTS_LIST.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                  {agentsList.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -212,11 +213,13 @@ function LeadDetailDialog({
   onClose,
   onUpdate,
   onDelete,
+  agentsList,
 }: {
   lead: Lead | null
   onClose: () => void
   onUpdate: (lead: Lead) => void
   onDelete: (id: string) => void
+  agentsList: string[]
 }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<Lead | null>(null)

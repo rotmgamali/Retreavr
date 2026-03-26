@@ -31,21 +31,31 @@ settings = get_settings()
 import time
 from collections import defaultdict
 
+from app.services.redis import check_rate_limit_redis
+
+# In-memory fallback (single-instance only, used when Redis is unavailable)
 _rate_counters: dict[str, list[float]] = defaultdict(list)
 _RATE_WINDOW_SECONDS = 60
 _MAX_CALLS_PER_WINDOW = 10  # per org per minute
 
 
-def _check_rate_limit(org_id: str) -> bool:
-    """Return True if the org is within rate limits."""
+def _check_rate_limit_local(org_id: str) -> bool:
+    """In-memory fallback rate limiter for single-instance deployments."""
     now = time.monotonic()
     window_start = now - _RATE_WINDOW_SECONDS
-    # Prune old entries
     _rate_counters[org_id] = [t for t in _rate_counters[org_id] if t > window_start]
     if len(_rate_counters[org_id]) >= _MAX_CALLS_PER_WINDOW:
         return False
     _rate_counters[org_id].append(now)
     return True
+
+
+async def _check_rate_limit(org_id: str) -> bool:
+    """Check rate limit via Redis first, fallback to in-memory."""
+    redis_ok = await check_rate_limit_redis(org_id, _RATE_WINDOW_SECONDS, _MAX_CALLS_PER_WINDOW)
+    if not redis_ok:
+        return False
+    return _check_rate_limit_local(org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +128,8 @@ async def initiate_call(
     if await is_on_dnc_list(db, organization_id, to_number):
         raise DNCViolationError(f"Number {to_number} is on the DNC list for org {organization_id}")
 
-    # 2. Rate limit
-    if not _check_rate_limit(str(organization_id)):
+    # 2. Rate limit (Redis-backed with in-memory fallback)
+    if not await _check_rate_limit(str(organization_id)):
         raise RateLimitExceededError(f"Org {organization_id} exceeded outbound call rate limit")
 
     # 3. Create pending Call record

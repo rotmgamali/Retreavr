@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1'
 
 // --- Token management ---------------------------------------------------
 
@@ -6,10 +6,11 @@ let accessToken: string | null = null
 
 function getStoredTokens() {
   if (typeof window === 'undefined') return { access: null, refresh: null }
-  return {
-    access: localStorage.getItem('access_token'),
-    refresh: localStorage.getItem('refresh_token'),
-  }
+  
+  const access = localStorage.getItem('access_token')
+  const refresh = localStorage.getItem('refresh_token')
+  
+  return { access, refresh }
 }
 
 function storeTokens(access: string, refresh: string) {
@@ -96,18 +97,16 @@ async function request<T>(
 
   const res = await fetch(url, { ...options, headers })
 
-  // Auto-refresh on 401
-  if (res.status === 401 && _retry) {
-    const newToken = await refreshAccessToken()
-    if (newToken) {
-      return request<T>(path, options, false)
+    // Auto-refresh on 401
+    // --- BYPASS REDIRECT FOR DEMO ---
+    if (res.status === 401 && _retry) {
+      const newToken = await refreshAccessToken()
+      if (newToken) {
+        return request<T>(path, options, false)
+      }
+      // Redirect disabled for demo
+      throw new ApiError(401, 'Unauthorized', 'Session expired')
     }
-    // Redirect to login if refresh failed
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login'
-    }
-    throw new ApiError(401, 'Unauthorized', 'Session expired')
-  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
@@ -133,6 +132,28 @@ export const api = {
       body: formData,
       headers: {}, // Let browser set Content-Type with boundary
     }),
+
+  // --- Analytics & Dashboard -----------------------------------------------
+
+  getAnalytics: async (range: string = '7d') => {
+    return request<any>(`/analytics/summary?range=${range}`)
+  },
+
+  getConversionAnalytics: async (days: number = 30) => {
+    return request<any>(`/analytics/conversion?days=${days}`)
+  },
+
+  getCallVolume: async (range: string = '7d') => {
+    return request<any>(`/analytics/calls/volume?range=${range}`)
+  },
+
+  getLiveAgents: async () => {
+    return request<any[]>('/analytics/agents/live')
+  },
+
+  getDashboardSummary: async () => {
+    return request<any>('/dashboard/summary')
+  },
 }
 
 // --- Auth helpers (used by auth context) ---------------------------------

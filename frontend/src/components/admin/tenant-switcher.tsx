@@ -20,11 +20,13 @@ export function TenantSwitcher() {
   const { activeTenantId, activeTenantName, setActiveTenant, clearActiveTenant } =
     useTenantContextStore();
 
-  const { data: tenants } = useQuery<TenantOverview[]>({
+  const { data: tenants } = useQuery<{ items: TenantOverview[] }>({
     queryKey: ["admin", "tenants"],
-    queryFn: () => api.get<TenantOverview[]>("/organizations/"),
+    queryFn: () => api.get<{ items: TenantOverview[] }>("/organizations/"),
     staleTime: 60_000,
   });
+
+  const tenantList = tenants?.items ?? [];
 
   return (
     <div className="flex items-center gap-1">
@@ -63,7 +65,7 @@ export function TenantSwitcher() {
             <span>Clear (All Tenants)</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {tenants?.map((t) => (
+          {tenantList.map((t) => (
             <DropdownMenuItem
               key={t.id}
               onClick={() => setActiveTenant(t.id, t.name)}
@@ -78,7 +80,7 @@ export function TenantSwitcher() {
               )}
             </DropdownMenuItem>
           ))}
-          {!tenants?.length && (
+          {!tenantList.length && (
             <DropdownMenuItem disabled className="text-xs text-muted-foreground">
               No tenants found
             </DropdownMenuItem>

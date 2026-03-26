@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Retrevr Insurance Platform (SaaS)
 
-## Getting Started
+A high-performance, multi-tenant AI Voice Agent platform for the insurance industry. Built with FastAPI, Next.js, and OpenAI Realtime API.
 
-First, run the development server:
+---
 
+## 🛠 Tech Stack
+- **Backend**: FastAPI (Python 3.10)
+- **Frontend**: Next.js 14 (App Router)
+- **Database**: Supabase (PostgreSQL + pgvector)
+- **Voice**: Twilio + OpenAI Realtime (Mu-law stream)
+
+---
+
+## 🚀 Production Deployment
+
+### 1. Backend (Google Cloud Run)
+The backend is Dockerized and ready for Google Cloud Run (recommended for reliable WebSockets).
+
+**Build and Push:**
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker build -t gcr.io/[PROJECT_ID]/retrevr-backend ./backend
+docker push gcr.io/[PROJECT_ID]/retrevr-backend
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Deploy:**
+```bash
+gcloud run deploy retrevr-backend \
+  --image gcr.io/[PROJECT_ID]/retrevr-backend \
+  --set-env-vars DATABASE_URL="[DB_URL]",OPENAI_API_KEY="[KEY]" \
+  --allow-unauthenticated \
+  --port 8000
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Frontend (Vercel)
+The frontend is optimized for Vercel.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Connect your GitHub repository to Vercel.
+2. Set the **Root Directory** to `frontend`.
+3. Add Environment Variables:
+   - `NEXT_PUBLIC_API_URL`: Your deployed backend URL (e.g., `https://api.retrevr.io/api/v1`).
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🔐 Security & Multi-Tenancy
+- **JWT Auth**: Full access and refresh token rotation.
+- **Org Isolation**: Every request is scoped to an `organization_id` via `TenantMiddleware`.
+- **DNC Protection**: Automatic Do-Not-Call list checks for all outbound sessions.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📈 Roadmap (HYPERSCALE)
+See the [HYPERSCALE.md](./HYPERSCALE.md) file for the full production transition plan, including autodialer implementation and Redis scaling.

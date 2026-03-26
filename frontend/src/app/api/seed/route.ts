@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import pool from "@/lib/db";
+import { getPoolInstance } from "@/lib/db";
 
 const SEED_SECRET = process.env.SEED_SECRET;
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const sqlPath = join(process.cwd(), "src", "lib", "seed.sql");
     const sql = await readFile(sqlPath, "utf-8");
 
-    const client = await pool.connect();
+    const client = await getPoolInstance().connect();
     try {
       await client.query(sql);
 

@@ -1,4 +1,3 @@
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -67,13 +66,22 @@ async def login(
 ):
     user = await authenticate_user(db, body.email, body.password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled",
+        )
 
     access_token = create_access_token(user.id, user.organization_id, user.role)
     refresh_value = create_refresh_token_value()
     await store_refresh_token(db, user.id, refresh_value)
+    await db.commit()
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_value)
 

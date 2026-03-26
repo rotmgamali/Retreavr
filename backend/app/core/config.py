@@ -20,19 +20,26 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
-    # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # CORS — production must set via CORS_ORIGINS env var (JSON list)
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
     # Twilio
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
+    twilio_webhook_base_url: str = ""
 
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_embedding_dimensions: int = 1536
+
+    # Redis (for rate limiting, event bus, campaign queue)
+    redis_url: str = ""
+
+    # Sentry
+    sentry_dsn: str = ""
 
     # RAG
     chunk_size: int = 512

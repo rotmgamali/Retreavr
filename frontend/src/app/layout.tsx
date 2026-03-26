@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { ReactQueryProvider } from "@/providers/query-provider";
 import { AuthProvider } from "@/providers/auth-provider";
+import { SentryInit } from "./sentry-init";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -14,6 +15,8 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
   weight: "100 900",
 });
+
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: "Retrevr Insurance Platform",
@@ -30,6 +33,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <SentryInit />
         <ReactQueryProvider>
           <AuthProvider>{children}</AuthProvider>
         </ReactQueryProvider>

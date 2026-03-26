@@ -4,13 +4,12 @@ Call Recording Pipeline
 Captures raw audio during calls, uploads to S3/R2 on completion,
 stores metadata in DB, and generates signed S3 URLs for playback.
 """
-import io
 import logging
 import uuid
-from datetime import timedelta
 from typing import Optional
 
 import boto3
+import httpx
 from botocore.exceptions import ClientError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,3 +175,42 @@ async def get_playback_url(
 
     # Fallback: Twilio URL
     return recording.recording_url
+
+
+# ---------------------------------------------------------------------------
+# Twilio → S3 download & upload
+# ---------------------------------------------------------------------------
+
+async def fetch_and_upload_twilio_recording(
+    db: AsyncSession,
+    call: Call,
+    twilio_recording_url: str,
+    recording_sid: str,
+    duration_seconds: Optional[int] = None,
+) -> CallRecording:
+    """
+    Download a completed recording from Twilio and upload it to S3/R2
+    for long-term storage. The Twilio URL is kept as a fallback.
+    """
+    # Twilio recording URLs end with .json by default; request .wav
+    wav_url = twilio_recording_url.rstrip(".json") + ".wav"
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # Twilio requires Basic auth for recording downloads
+        auth = (settings.twilio_account_sid, settings.twilio_auth_token) if settings.twilio_account_sid else None
+        resp = await client.get(wav_url, auth=auth, follow_redirects=True)
+        resp.raise_for_status()
+        audio_bytes = resp.content
+
+    logger.info(
+        "Downloaded Twilio recording %s (%d bytes) for call %s",
+        recording_sid, len(audio_bytes), call.id,
+    )
+
+    return await upload_recording(
+        db=db,
+        call=call,
+        audio_bytes=audio_bytes,
+        duration_seconds=duration_seconds,
+        content_type="audio/wav",
+    )

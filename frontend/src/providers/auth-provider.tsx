@@ -41,10 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      if (!authApi.isAuthenticated()) {
-        setState({ user: null, isLoading: false, isAuthenticated: false })
-        return
-      }
       const user = await authApi.getMe()
       setState({ user, isLoading: false, isAuthenticated: true })
     } catch {
@@ -58,10 +54,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      await authApi.login(email, password)
-      const user = await authApi.getMe()
-      setState({ user, isLoading: false, isAuthenticated: true })
-      router.push('/')
+      setState((prev) => ({ ...prev, isLoading: true }))
+      try {
+        await authApi.login(email, password)
+        const user = await authApi.getMe()
+        setState({ user, isLoading: false, isAuthenticated: true })
+        router.push('/')
+      } catch (error) {
+        setState((prev) => ({ ...prev, isLoading: false }))
+        throw error
+      }
     },
     [router]
   )

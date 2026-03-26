@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated, List, Optional
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status, WebSocket, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,26 +24,31 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     try:
         payload = validate_access_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Could not validate credentials",
         )
-
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token claims")
 
     user = await get_user_by_id(db, uuid.UUID(user_id))
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
 
+    # Inhibit demo state overrides
     request.state.org_id = str(user.organization_id)
     request.state.user = user
-
     return user
 
 
@@ -72,6 +77,32 @@ def require_role(roles: List[str]):
 
     return _check_role
 
+
+async def get_current_org_ws(
+    websocket: WebSocket,
+    token: Annotated[Optional[str], Query()] = None,
+    db: Annotated[AsyncSession, Depends(get_db)] = None,
+) -> uuid.UUID:
+    """Authentication for WebSockets using query parameter token."""
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        raise HTTPException(status_code=401)
+    
+    try:
+        payload = validate_access_token(token)
+    except JWTError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        raise HTTPException(status_code=401)
+
+    user_id = payload.get("sub")
+    if not user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        raise HTTPException(status_code=401)
+
+    user = await get_user_by_id(db, uuid.UUID(user_id))
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        raise HTTPException(status_code=401)
 
 async def get_current_org(
     current_user: Annotated[User, Depends(get_current_active_user)],

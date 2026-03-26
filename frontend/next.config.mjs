@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ['pg', 'pg-native'],
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
     return [

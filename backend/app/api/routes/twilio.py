@@ -36,7 +36,10 @@ from app.services.telephony.call_manager import (
     update_call_from_twilio_status,
 )
 from app.services.telephony.media_bridge import TwilioOpenAIBridge
-from app.services.telephony.recording import store_twilio_recording_url
+from app.services.telephony.recording import (
+    store_twilio_recording_url,
+    fetch_and_upload_twilio_recording,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -279,8 +282,17 @@ async def twilio_recording_status(
         call = await get_call_by_sid(db, CallSid)
         if call:
             duration = int(RecordingDuration) if RecordingDuration else None
+            # Store Twilio URL as fallback
             await store_twilio_recording_url(db, call, RecordingUrl, duration)
             await db.commit()
+            # Attempt to download from Twilio and upload to S3/R2 for long-term storage
+            try:
+                await fetch_and_upload_twilio_recording(
+                    db, call, RecordingUrl, RecordingSid, duration,
+                )
+                await db.commit()
+            except Exception as exc:
+                logger.warning("S3 upload failed for recording %s: %s (Twilio URL saved as fallback)", RecordingSid, exc)
     return Response(status_code=204)
 
 

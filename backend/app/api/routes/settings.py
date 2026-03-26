@@ -1,7 +1,10 @@
+import csv
+import io
+import re
 import uuid
 from typing import Annotated, Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +15,9 @@ from app.models.system import Integration, NotificationRule
 from app.models.user import User
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+# Max DNC file size: 5 MB
+_DNC_MAX_BYTES = 5 * 1024 * 1024
 
 
 # --- Pydantic schemas ---
@@ -208,3 +214,108 @@ async def update_notification_rule(
     await db.flush()
     await db.refresh(rule)
     return rule
+
+
+# --- DNC list management ---
+
+def _normalise_phone(raw: str) -> str:
+    """Strip a phone string down to digits with optional leading +."""
+    return re.sub(r"[^\d+]", "", raw.strip())
+
+
+@router.post("/dnc/upload")
+async def upload_dnc_csv(
+    file: Annotated[UploadFile, File(description="CSV file with phone numbers")],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    """
+    Upload a .csv file to populate the organisation's DNC (Do Not Call) list.
+    The CSV should have a column named 'phone' (or the first column is used).
+    Numbers are normalised and de-duplicated.
+    """
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .csv files are accepted")
+
+    raw = await file.read()
+    if len(raw) > _DNC_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large (max 5 MB)")
+
+    text = raw.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+
+    fieldnames = reader.fieldnames or []
+    phone_col = None
+    for name in fieldnames:
+        if name.lower().strip() in ("phone", "phone_number", "phonenumber", "number", "tel", "telephone"):
+            phone_col = name
+            break
+    if phone_col is None and fieldnames:
+        phone_col = fieldnames[0]
+
+    if phone_col is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV has no columns")
+
+    numbers: set[str] = set()
+    for row in reader:
+        normalised = _normalise_phone(row.get(phone_col, ""))
+        if len(normalised) >= 7:
+            numbers.add(normalised)
+
+    if not numbers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid phone numbers found in CSV")
+
+    org = await db.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    current_settings: dict = org.settings or {}
+    existing_dnc: list = current_settings.get("dnc_list", [])
+    merged = list(set(existing_dnc) | numbers)
+
+    current_settings["dnc_list"] = merged
+    org.settings = current_settings
+    await db.flush()
+    await db.commit()
+
+    return {
+        "uploaded": len(numbers),
+        "total_dnc": len(merged),
+        "previously_existing": len(existing_dnc),
+        "new_added": len(merged) - len(existing_dnc),
+    }
+
+
+@router.get("/dnc")
+async def get_dnc_list(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+):
+    """Return the current DNC list for the organisation."""
+    org = await db.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    dnc_list = (org.settings or {}).get("dnc_list", [])
+    return {"total": len(dnc_list), "numbers": dnc_list}
+
+
+@router.delete("/dnc")
+async def clear_dnc_list(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    """Clear the entire DNC list for the organisation."""
+    org = await db.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    current_settings: dict = org.settings or {}
+    current_settings["dnc_list"] = []
+    org.settings = current_settings
+    await db.flush()
+    await db.commit()
+
+    return {"status": "cleared"}

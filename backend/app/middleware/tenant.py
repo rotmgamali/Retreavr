@@ -17,18 +17,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Default states:
+        request.state.org_id = None
+        request.state.is_superadmin = False
+
+        # Extract org_id and role from JWT:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            token = auth_header.removeprefix("Bearer ").strip()
+            token = auth_header.split(" ")[1]
             try:
                 payload = validate_access_token(token)
-                org_id_str = payload.get("org_id")
-                role = payload.get("role", "")
-                if org_id_str:
-                    request.state.org_id = uuid.UUID(org_id_str)
-                request.state.is_superadmin = role == "superadmin"
-            except (JWTError, ValueError):
-                # Invalid token — let the route-level dependency handle rejection
+                request.state.org_id = uuid.UUID(payload.get("org_id"))
+                request.state.is_superadmin = payload.get("role") == "superadmin"
+            except (JWTError, ValueError, TypeError):
+                # Invalid token - but we pass through and let Dependencies handle 401
                 pass
 
         return await call_next(request)

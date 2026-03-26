@@ -39,47 +39,6 @@ interface QueueItem {
   reason: string
 }
 
-// ── Mock data (augmented by real API data when available) ─────────────────────
-
-const INITIAL_CALLS: ActiveCall[] = [
-  {
-    id: 'c1', callerName: 'James Wilson', callerPhone: '(555) 123-4567',
-    agent: 'Sarah AI', status: 'connected', duration: 187, sentiment: 'positive',
-    topic: 'Auto Quote Inquiry',
-    waveform: Array.from({ length: 30 }, () => Math.random() * 0.8 + 0.1),
-  },
-  {
-    id: 'c2', callerName: 'Maria Garcia', callerPhone: '(555) 234-5678',
-    agent: 'Mike AI', status: 'connected', duration: 342, sentiment: 'neutral',
-    topic: 'Claims Follow-up',
-    waveform: Array.from({ length: 30 }, () => Math.random() * 0.8 + 0.1),
-  },
-  {
-    id: 'c3', callerName: 'Robert Chen', callerPhone: '(555) 345-6789',
-    agent: 'Alex AI', status: 'ringing', duration: 8, sentiment: 'neutral',
-    topic: 'Inbound - New Lead',
-    waveform: Array.from({ length: 30 }, () => 0.05),
-  },
-  {
-    id: 'c4', callerName: 'Emily Brown', callerPhone: '(555) 456-7890',
-    agent: 'Sarah AI', status: 'connected', duration: 523, sentiment: 'negative',
-    topic: 'Policy Cancellation Request',
-    waveform: Array.from({ length: 30 }, () => Math.random() * 0.6 + 0.2),
-  },
-  {
-    id: 'c5', callerName: 'David Kim', callerPhone: '(555) 567-8901',
-    agent: 'Jordan AI', status: 'on-hold', duration: 91, sentiment: 'neutral',
-    topic: 'Transferring to Specialist',
-    waveform: Array.from({ length: 30 }, () => 0.02),
-  },
-]
-
-const INITIAL_QUEUE: QueueItem[] = [
-  { id: 'q1', callerName: 'Patricia Moore', callerPhone: '(555) 678-9012', waitTime: 45, priority: 'high', reason: 'Urgent claim' },
-  { id: 'q2', callerName: 'Thomas Anderson', callerPhone: '(555) 789-0123', waitTime: 23, priority: 'medium', reason: 'Quote request' },
-  { id: 'q3', callerName: 'Lisa Wang', callerPhone: '(555) 890-1234', waitTime: 12, priority: 'low', reason: 'General inquiry' },
-]
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDuration(sec: number) {
@@ -202,8 +161,8 @@ function ActiveCallCard({ call }: { call: ActiveCall }) {
 
 export default function CallCenterPage() {
   const loading = usePageLoading(600)
-  const [calls] = useState<ActiveCall[]>(INITIAL_CALLS)
-  const [queue] = useState<QueueItem[]>(INITIAL_QUEUE)
+  const [calls] = useState<ActiveCall[]>([])
+  const [queue] = useState<QueueItem[]>([])
   const [durations, setDurations] = useState<Record<string, number>>({})
   const [showDialer, setShowDialer] = useState(false)
   const [incomingCall, setIncomingCall] = useState<{
@@ -448,22 +407,9 @@ export default function CallCenterPage() {
               <CardTitle className="text-lg">Today&apos;s Stats</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {[
-                { label: 'Total Calls', value: '247', change: '+12%' },
-                { label: 'Avg Wait Time', value: '0:18', change: '-23%' },
-                { label: 'Avg Call Duration', value: '4:32', change: '+5%' },
-                { label: 'Resolution Rate', value: '94%', change: '+2%' },
-              ].map(stat => (
-                <div key={stat.label} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-slate-400">{stat.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{stat.value}</span>
-                    <span className={`text-[10px] ${stat.change.startsWith('+') ? 'text-green-400' : 'text-red-400'}`}>
-                      {stat.change}
-                    </span>
-                  </div>
-                </div>
-              ))}
+              <p className="text-xs text-slate-500 text-center py-2">
+                Live stats load from the analytics dashboard
+              </p>
             </CardContent>
           </Card>
         </div>

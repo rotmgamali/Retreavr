@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,20 +10,36 @@ from app.api.routes.auth import router as auth_router
 
 settings = get_settings()
 
+# ── Sentry error tracking ─────────────────────────────────────────────
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        traces_sample_rate=0.2,
+        profiles_sample_rate=0.1,
+        environment="production" if not settings.debug else "development",
+        send_default_pii=False,
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.realtime.event_bus import event_bus
     from app.services.realtime.connection_manager import connection_manager
     from app.services.realtime.notifications import notification_dispatcher
+    from app.services.redis import get_redis, close_redis
 
+    # Start event bus
     await event_bus.start()
     connection_manager.register_with_event_bus()
     notification_dispatcher.register()
 
+    # Warm Redis connection pool
+    await get_redis()
+
     yield
 
     await event_bus.stop()
+    await close_redis()
 
 
 app = FastAPI(

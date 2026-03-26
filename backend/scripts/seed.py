@@ -579,8 +579,8 @@ async def seed():
                 sa_first, sa_last = "Super", "Admin"
                 sa = User(
                     organization_id=org.id,
-                    email="superadmin@retrevr.demo",
-                    hashed_password=hash_password("SuperAdmin123!"),
+                    email="admin@retrevr.io",
+                    hashed_password=hash_password("demo123!"),
                     first_name=sa_first,
                     last_name=sa_last,
                     role=UserRole.superadmin,

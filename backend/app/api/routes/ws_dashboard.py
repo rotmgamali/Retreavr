@@ -49,32 +49,27 @@ async def dashboard_stream(
     """
     await websocket.accept()
 
-    # --- Auth handshake ---
-    if not token:
+    # --- Auth handshake: JWT via query param or first message ---
+    jwt_token = token
+    if not jwt_token:
         try:
-            raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
-            data = json.loads(raw)
-            token = data.get("token")
-        except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
-            await websocket.send_text(json.dumps({"type": "error", "message": "auth_timeout"}))
-            await websocket.close(code=4001)
+            jwt_token = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+        except (asyncio.TimeoutError, WebSocketDisconnect):
+            await websocket.close(code=1008)
             return
 
     try:
-        payload = decode_ws_token(token)
-    except WSAuthError as exc:
-        await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
-        await websocket.close(code=4003)
+        payload = decode_ws_token(jwt_token)
+        user_id = payload["sub"]
+        token_org_id = payload.get("org_id", "")
+        role = payload.get("role", "")
+    except WSAuthError:
+        await websocket.close(code=1008)
         return
 
-    user_id = str(payload["sub"])
-    token_org_id = str(payload.get("org_id", ""))
-    role = str(payload.get("role", ""))
-
-    # Org isolation: users can only subscribe to their own org's dashboard
-    if token_org_id != org_id:
-        await websocket.send_text(json.dumps({"type": "error", "message": "org_mismatch"}))
-        await websocket.close(code=4003)
+    # Verify the user has access to this org (or is superadmin)
+    if role != "superadmin" and token_org_id != org_id:
+        await websocket.close(code=1008)
         return
 
     conn = Connection(websocket=websocket, user_id=user_id, org_id=org_id, role=role)
