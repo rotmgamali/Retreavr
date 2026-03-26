@@ -173,7 +173,7 @@ export default function PlatformAnalyticsPage() {
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       label={((props: any) => `${props.subscription_tier}: ${props.count}`) as any}
                     >
-                      {d.tier_distribution.map((entry, i) => (
+                      {(d.tier_distribution as any[]).map((entry: any, i: number) => (
                         <Cell key={entry.subscription_tier} fill={TIER_COLORS[entry.subscription_tier] || PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -237,7 +237,7 @@ export default function PlatformAnalyticsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {d.top_tenants_by_calls.map((t, i) => (
+                {(d.top_tenants_by_calls as any[]).map((t: any, i: number) => (
                   <TableRow key={t.id}>
                     <TableCell className="text-sm text-muted-foreground">{i + 1}</TableCell>
                     <TableCell>
@@ -274,7 +274,7 @@ export default function PlatformAnalyticsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {d.top_tenants_by_conversion.map((t, i) => (
+                {(d.top_tenants_by_conversion as any[]).map((t: any, i: number) => (
                   <TableRow key={t.id}>
                     <TableCell className="text-sm text-muted-foreground">{i + 1}</TableCell>
                     <TableCell>
