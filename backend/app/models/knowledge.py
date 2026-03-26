@@ -39,6 +39,7 @@ class KnowledgeDocument(Base):
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="knowledge_documents")
     embeddings: Mapped[List["DocumentEmbedding"]] = relationship("DocumentEmbedding", back_populates="document", lazy="select")
+    agent_knowledge_bases: Mapped[List["AgentKnowledgeBase"]] = relationship("AgentKnowledgeBase", back_populates="knowledge_document", lazy="select")
 
 
 class DocumentEmbedding(Base):

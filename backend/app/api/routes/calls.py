@@ -65,6 +65,7 @@ async def create_call(
     call = Call(**data)
     db.add(call)
     await db.flush()
+    await db.commit()
     await db.refresh(call)
     return call
 
@@ -84,6 +85,7 @@ async def update_call(
         setattr(call, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(call)
     return call
 
@@ -99,6 +101,7 @@ async def delete_call(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
     call.is_deleted = True
     await db.flush()
+    await db.commit()
 
 
 @router.get("/{call_id}/transcript", response_model=CallTranscriptResponse)
@@ -131,11 +134,37 @@ async def create_call_transcript(
     transcript = CallTranscript(**{**body.model_dump(), "call_id": call_id})
     db.add(transcript)
     await db.flush()
+    await db.commit()
     await db.refresh(transcript)
 
     if transcript.transcript:
         background_tasks.add_task(run_post_processing, call_id, transcript.transcript)
 
+    return transcript
+
+
+@router.patch("/{call_id}/transcript")
+async def update_call_transcript(
+    call_id: uuid.UUID,
+    body: CallTranscriptUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+):
+    call = await db.get(Call, call_id)
+    if not call or call.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Call not found")
+    result = await db.execute(
+        select(CallTranscript).where(CallTranscript.call_id == call_id)
+    )
+    transcript = result.scalar_one_or_none()
+    if not transcript:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(transcript, field, value)
+    await db.flush()
+    await db.commit()
+    await db.refresh(transcript)
     return transcript
 
 
@@ -184,5 +213,6 @@ async def create_call_summary(
     summary = CallSummary(**{**body.model_dump(), "call_id": call_id})
     db.add(summary)
     await db.flush()
+    await db.commit()
     await db.refresh(summary)
     return summary

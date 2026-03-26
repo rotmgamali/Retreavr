@@ -80,6 +80,7 @@ async def create_organization(
     org = Organization(**body.model_dump())
     db.add(org)
     await db.flush()
+    await db.commit()
     await db.refresh(org)
     return org
 
@@ -111,6 +112,7 @@ async def update_organization(
             setattr(org, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(org)
     return org
 
@@ -128,3 +130,4 @@ async def delete_organization(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
     org.is_active = False
     await db.flush()
+    await db.commit()

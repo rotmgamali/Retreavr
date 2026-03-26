@@ -69,5 +69,6 @@ class AgentKnowledgeBase(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     voice_agent: Mapped["VoiceAgent"] = relationship("VoiceAgent", back_populates="knowledge_bases")
+    knowledge_document: Mapped["KnowledgeDocument"] = relationship("KnowledgeDocument", back_populates="agent_knowledge_bases", lazy="select")
 
 

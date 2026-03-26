@@ -114,13 +114,15 @@ async function request<T>(
   const res = await fetch(url, { ...options, headers })
 
     // Auto-refresh on 401
-    // --- BYPASS REDIRECT FOR DEMO ---
     if (res.status === 401 && _retry) {
       const newToken = await refreshAccessToken()
       if (newToken) {
         return request<T>(path, options, false)
       }
-      // Redirect disabled for demo
+      clearTokens()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login'
+      }
       throw new ApiError(401, 'Unauthorized', 'Session expired')
     }
 

@@ -54,6 +54,7 @@ async def create_campaign(
     campaign = Campaign(**data)
     db.add(campaign)
     await db.flush()
+    await db.commit()
     await db.refresh(campaign)
     return campaign
 
@@ -73,6 +74,7 @@ async def update_campaign(
         setattr(campaign, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(campaign)
     return campaign
 
@@ -88,6 +90,7 @@ async def delete_campaign(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
     campaign.is_deleted = True
     await db.flush()
+    await db.commit()
 
 
 # ── Campaign autodialer controls ───────────────────────────────────────

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -21,7 +23,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # CORS — production must set via CORS_ORIGINS env var (JSON list)
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://valiant-solace-production-dca5.up.railway.app",
+    ]
 
     # Twilio
     twilio_account_sid: str = ""
@@ -65,4 +71,10 @@ def get_settings() -> Settings:
             "SECRET_KEY must be set to a secure value. "
             "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
         )
+    if not settings.redis_url:
+        warnings.warn("REDIS_URL not set — rate limiting will be disabled")
+    if not settings.twilio_account_sid:
+        warnings.warn("TWILIO_ACCOUNT_SID not set — voice calls will not work")
+    if not settings.openai_api_key:
+        warnings.warn("OPENAI_API_KEY not set — AI features will be disabled")
     return settings

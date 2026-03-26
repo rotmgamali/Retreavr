@@ -50,7 +50,7 @@ export default function DashboardLayout({
         }
       })
       .catch(() => {
-        // If the status check fails, allow dashboard access
+        console.warn("Onboarding status check failed, allowing dashboard access");
         if (!cancelled) setOnboardingChecked(true);
       });
 

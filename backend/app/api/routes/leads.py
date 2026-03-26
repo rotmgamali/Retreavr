@@ -62,6 +62,7 @@ async def create_lead(
     lead = Lead(**data)
     db.add(lead)
     await db.flush()
+    await db.commit()
     await db.refresh(lead)
     return lead
 
@@ -81,6 +82,7 @@ async def update_lead(
         setattr(lead, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(lead)
     return lead
 
@@ -96,6 +98,7 @@ async def delete_lead(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
     lead.is_deleted = True
     await db.flush()
+    await db.commit()
 
 
 @router.get("/{lead_id}/interactions", response_model=PaginatedResponse[LeadInteractionResponse])
@@ -134,5 +137,6 @@ async def create_lead_interaction(
     interaction = LeadInteraction(**{**body.model_dump(), "lead_id": lead_id})
     db.add(interaction)
     await db.flush()
+    await db.commit()
     await db.refresh(interaction)
     return interaction

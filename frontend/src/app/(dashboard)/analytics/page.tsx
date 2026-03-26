@@ -84,7 +84,7 @@ export default function AnalyticsPage() {
     name: a.agent_name,
     calls: a.total_calls,
     conversion: Math.round(a.conversion_rate),
-    avgDuration: Number(a.avg_duration.toFixed(1)),
+    avgDuration: Number((a.avg_duration / 60).toFixed(1)),
     satisfaction: Math.round((a.sentiment_avg ?? 0) * 100),
   })) ?? []
 

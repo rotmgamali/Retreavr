@@ -467,9 +467,8 @@ export default function SettingsPage() {
           {/* Usage */}
           <Section title="Usage This Month">
             <div className="space-y-4">
-              <UsageStat label="API Calls" used={8420} total={10000} unit="" />
-              <UsageStat label="Active Agents" used={4} total={5} unit="" />
-              <UsageStat label="Storage" used={2.1} total={10} unit=" GB" />
+              <UsageStat label="API Calls" used={0} total={10000} unit="" />
+              <UsageStat label="Active Agents" used={team.length} total={5} unit="" />
             </div>
           </Section>
         </TabsContent>

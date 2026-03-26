@@ -133,7 +133,7 @@ const SENTIMENT_COLOR = {
   negative: 'text-red-400',
 }
 
-// ── AI Score ring ────────────────────────────────────────────────────────────
+// ── Sentiment Score ring ─────────────────────────────────────────────────────
 
 function ScoreRing({ score }: { score: number }) {
   if (score === 0) return <span className="text-xs text-slate-600">N/A</span>

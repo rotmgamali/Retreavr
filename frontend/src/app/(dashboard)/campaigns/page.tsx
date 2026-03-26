@@ -108,17 +108,6 @@ function CampaignAnalyticsDialog({
     ? ((campaign.contacted / campaign.totalLeads) * 100).toFixed(1)
     : '0'
 
-  // Simulated daily data for a mini sparkline-style breakdown
-  const dailyBreakdown = [
-    { day: 'Mon', calls: Math.round(campaign.contacted * 0.18), converted: Math.round(campaign.converted * 0.15) },
-    { day: 'Tue', calls: Math.round(campaign.contacted * 0.22), converted: Math.round(campaign.converted * 0.20) },
-    { day: 'Wed', calls: Math.round(campaign.contacted * 0.20), converted: Math.round(campaign.converted * 0.25) },
-    { day: 'Thu', calls: Math.round(campaign.contacted * 0.16), converted: Math.round(campaign.converted * 0.18) },
-    { day: 'Fri', calls: Math.round(campaign.contacted * 0.14), converted: Math.round(campaign.converted * 0.12) },
-    { day: 'Sat', calls: Math.round(campaign.contacted * 0.06), converted: Math.round(campaign.converted * 0.06) },
-    { day: 'Sun', calls: Math.round(campaign.contacted * 0.04), converted: Math.round(campaign.converted * 0.04) },
-  ]
-  const maxCalls = Math.max(...dailyBreakdown.map(d => d.calls), 1)
 
   return (
     <Dialog open={!!campaign} onOpenChange={onClose}>
@@ -157,25 +146,6 @@ function CampaignAnalyticsDialog({
             <StatBar label="Leads Contacted" value={campaign.contacted} max={campaign.totalLeads} color="bg-cyan-500" />
             <StatBar label="Leads Converted" value={campaign.converted} max={campaign.contacted} color="bg-green-500" />
             <StatBar label="Not Contacted" value={campaign.totalLeads - campaign.contacted} max={campaign.totalLeads} color="bg-slate-500" />
-          </div>
-
-          {/* Daily breakdown */}
-          <div>
-            <h4 className="text-sm font-semibold text-slate-300 mb-3">Daily Activity (this week)</h4>
-            <div className="flex items-end gap-2 h-28">
-              {dailyBreakdown.map(d => (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex flex-col items-center gap-0.5" style={{ height: '88px', justifyContent: 'flex-end' }}>
-                    <div
-                      className="w-full rounded-sm bg-blue-500/60 hover:bg-blue-500 transition-colors"
-                      style={{ height: `${Math.max(4, (d.calls / maxCalls) * 72)}px` }}
-                      title={`${d.calls} calls`}
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-500">{d.day}</span>
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* Dates */}

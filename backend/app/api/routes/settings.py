@@ -119,6 +119,7 @@ async def update_org_settings(
             setattr(org, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(org)
     return {
         "id": str(org.id),
@@ -152,6 +153,7 @@ async def create_integration(
     integration = Integration(**body.model_dump(), organization_id=org_id)
     db.add(integration)
     await db.flush()
+    await db.commit()
     await db.refresh(integration)
     return integration
 
@@ -172,6 +174,7 @@ async def update_integration(
         setattr(integration, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(integration)
     return integration
 
@@ -199,6 +202,7 @@ async def create_notification_rule(
     rule = NotificationRule(**body.model_dump(), organization_id=org_id)
     db.add(rule)
     await db.flush()
+    await db.commit()
     await db.refresh(rule)
     return rule
 
@@ -219,6 +223,7 @@ async def update_notification_rule(
         setattr(rule, field, value)
 
     await db.flush()
+    await db.commit()
     await db.refresh(rule)
     return rule
 

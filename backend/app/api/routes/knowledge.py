@@ -103,6 +103,7 @@ async def upload_document(
     )
     db.add(doc_record)
     await db.flush()  # obtain doc_record.id before ingestion
+    await db.commit()
 
     try:
         # 3. Chunk + embed + store in pgvector
@@ -115,9 +116,11 @@ async def upload_document(
         # 4. Mark document ready
         doc_record.status = DocumentStatus.ready
         await db.flush()
+        await db.commit()
     except Exception as exc:
         doc_record.status = DocumentStatus.failed
         await db.flush()
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Ingestion pipeline failed: {exc}",
@@ -210,3 +213,4 @@ async def delete_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     doc.is_deleted = True
     await db.flush()
+    await db.commit()
