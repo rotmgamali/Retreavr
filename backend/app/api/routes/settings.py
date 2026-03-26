@@ -84,6 +84,70 @@ class NotificationRuleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- DNC response schemas ---
+
+class DNCUploadResponse(BaseModel):
+    uploaded: int
+    total_dnc: int
+    previously_existing: int
+    new_added: int
+
+
+class DNCListResponse(BaseModel):
+    total: int
+    numbers: list[str]
+    limit: int
+    offset: int
+
+
+class DNCClearResponse(BaseModel):
+    status: str
+
+
+# --- API Key schemas ---
+
+class ApiKeyCreate(BaseModel):
+    name: str
+
+
+class ApiKeyResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    key_prefix: str
+    is_active: bool
+    last_used_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    full_key: str
+
+
+# --- Audit log schemas ---
+
+class AuditLogResponse(BaseModel):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedAuditLogResponse(BaseModel):
+    items: list[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 # --- Organization settings ---
 
 @router.get("/organization")
@@ -419,27 +483,6 @@ async def clear_dnc_list(
     return {"status": "cleared"}
 
 
-# --- Pydantic schemas for API keys ---
-
-class ApiKeyCreate(BaseModel):
-    name: str
-
-class ApiKeyResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    key_prefix: str
-    is_active: bool
-    last_used_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    created_at: str
-
-    model_config = {"from_attributes": True}
-
-class ApiKeyCreatedResponse(ApiKeyResponse):
-    """Returned only on creation - includes the full key (shown once)."""
-    full_key: str
-
-
 # --- API Key endpoints ---
 
 @router.get("/api-keys", response_model=list[ApiKeyResponse])
@@ -500,44 +543,6 @@ async def revoke_api_key(
 
 
 # --- Audit log ---
-
-class AuditLogResponse(BaseModel):
-    id: uuid.UUID
-    user_id: Optional[uuid.UUID] = None
-    action: str
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
-    ip_address: Optional[str] = None
-    created_at: str
-
-    model_config = {"from_attributes": True}
-
-
-class PaginatedAuditLogResponse(BaseModel):
-    items: list[AuditLogResponse]
-    total: int
-    limit: int
-    offset: int
-
-
-class DNCUploadResponse(BaseModel):
-    uploaded: int
-    total_dnc: int
-    previously_existing: int
-    new_added: int
-
-
-class DNCListResponse(BaseModel):
-    total: int
-    numbers: list[str]
-    limit: int
-    offset: int
-
-
-class DNCClearResponse(BaseModel):
-    status: str
-
 
 @router.get("/audit-logs", response_model=PaginatedAuditLogResponse)
 async def list_audit_logs(

@@ -72,20 +72,22 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     settings = Settings()
 
-    # Reject empty, default, or weak SECRET_KEY values
+    # Warn about empty, default, or weak SECRET_KEY values
     _key = settings.secret_key
     _key_lower = _key.lower()
     _weak_patterns = ("change-me", "changeme", "retrevr", "secret", "password", "example")
-    if (
-        not _key
-        or len(_key) < 32
-        or any(p in _key_lower for p in _weak_patterns)
-    ):
+    if not _key:
         raise RuntimeError(
-            "SECRET_KEY is missing, too short (< 32 chars), or contains a "
-            "well-known default pattern. "
+            "SECRET_KEY is not set. "
             "Generate a secure key with: "
             "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+    if len(_key) < 32 or any(p in _key_lower for p in _weak_patterns):
+        warnings.warn(
+            "SECRET_KEY is weak (too short or contains a default pattern). "
+            "Generate a secure key with: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(64))\"",
+            stacklevel=2,
         )
     if not settings.redis_url:
         warnings.warn("REDIS_URL not set — rate limiting will be disabled")
