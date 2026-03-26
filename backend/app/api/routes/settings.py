@@ -1,18 +1,21 @@
 import csv
+import hashlib
 import io
 import re
+import secrets
 import uuid
 from typing import Annotated, Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, get_current_org, get_db, require_role
 from app.models.organization import Organization
-from app.models.system import Integration, NotificationRule
+from app.models.system import AuditLog, ApiKey, Integration, NotificationRule
 from app.models.user import User
+from app.services.audit import log_audit_event
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -146,13 +149,22 @@ async def list_integrations(
 @router.post("/integrations", response_model=IntegrationResponse, status_code=status.HTTP_201_CREATED)
 async def create_integration(
     body: IntegrationCreate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     integration = Integration(**body.model_dump(), organization_id=org_id)
     db.add(integration)
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="integration.created",
+        resource_type="integration",
+        resource_id=str(integration.id),
+        details={"name": integration.name, "provider": integration.provider},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(integration)
     return integration
@@ -162,20 +174,30 @@ async def create_integration(
 async def update_integration(
     integration_id: uuid.UUID,
     body: IntegrationUpdate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     integration = await db.get(Integration, integration_id)
     if not integration or integration.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
 
     INTEGRATION_UPDATE_FIELDS = {"name", "config", "credentials", "is_active"}
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         if field in INTEGRATION_UPDATE_FIELDS:
             setattr(integration, field, value)
 
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="integration.updated",
+        resource_type="integration",
+        resource_id=str(integration.id),
+        details={"name": integration.name, "fields_updated": list(updates.keys())},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(integration)
     return integration
@@ -242,9 +264,10 @@ def _normalise_phone(raw: str) -> str:
 @router.post("/dnc/upload")
 async def upload_dnc_csv(
     file: Annotated[UploadFile, File(description="CSV file with phone numbers")],
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     """
     Upload a .csv file to populate the organisation's DNC (Do Not Call) list.
@@ -293,6 +316,13 @@ async def upload_dnc_csv(
     current_settings["dnc_list"] = merged
     org.settings = current_settings
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="dnc.uploaded",
+        resource_type="dnc_list",
+        details={"uploaded": len(numbers), "new_added": len(merged) - len(existing_dnc), "total": len(merged)},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
     return {
@@ -319,9 +349,10 @@ async def get_dnc_list(
 
 @router.delete("/dnc")
 async def clear_dnc_list(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     """Clear the entire DNC list for the organisation."""
     org = await db.get(Organization, org_id)
@@ -332,6 +363,135 @@ async def clear_dnc_list(
     current_settings["dnc_list"] = []
     org.settings = current_settings
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="dnc.cleared",
+        resource_type="dnc_list",
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
     return {"status": "cleared"}
+
+
+# --- Pydantic schemas for API keys ---
+
+class ApiKeyCreate(BaseModel):
+    name: str
+
+class ApiKeyResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    key_prefix: str
+    is_active: bool
+    last_used_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    """Returned only on creation - includes the full key (shown once)."""
+    full_key: str
+
+
+# --- API Key endpoints ---
+
+@router.get("/api-keys", response_model=list[ApiKeyResponse])
+async def list_api_keys(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.organization_id == org_id).order_by(ApiKey.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/api-keys", response_model=ApiKeyCreatedResponse, status_code=status.HTTP_201_CREATED)
+async def create_api_key(
+    body: ApiKeyCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    raw_key = f"ret_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12]
+
+    api_key = ApiKey(
+        organization_id=org_id,
+        name=body.name,
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+    )
+    db.add(api_key)
+    await db.flush()
+    await db.commit()
+    await db.refresh(api_key)
+
+    # Return the full key only this one time
+    response = ApiKeyCreatedResponse.model_validate(api_key)
+    response.full_key = raw_key
+    return response
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(
+    key_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    key = await db.get(ApiKey, key_id)
+    if not key or key.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    key.is_active = False
+    await db.flush()
+    await db.commit()
+    return {"status": "revoked"}
+
+
+# --- Audit log ---
+
+class AuditLogResponse(BaseModel):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    limit: int = 50,
+    offset: int = 0,
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+):
+    query = select(AuditLog).where(AuditLog.organization_id == org_id)
+    if action:
+        query = query.where(AuditLog.action == action)
+    if resource_type:
+        query = query.where(AuditLog.resource_type == resource_type)
+
+    # Count
+    count_q = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_q)).scalar() or 0
+
+    # Fetch
+    query = query.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
+    result = await db.execute(query)
+    items = result.scalars().all()
+
+    return {"items": items, "total": total, "limit": limit, "offset": offset}

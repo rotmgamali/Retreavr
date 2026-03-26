@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, Upload, Trash2, Plus } from 'lucide-react'
+import { X, Trash2, Plus, FileText, Loader2, CheckCircle2, Clock } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
+import { useDocuments } from '@/hooks/use-knowledge'
+import { useLinkKnowledge, useUnlinkKnowledge } from '@/hooks/use-agents'
+import { toast } from 'sonner'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type VoiceOption = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
@@ -119,13 +122,38 @@ export function VoiceAgentConfigDrawer({ agent, isOpen, onClose, onSave }: Voice
   const selectedVoice = watch('voice')
   const vadThreshold = watch('vadThreshold')
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
-    setValue('knowledgeBase', [...knowledgeBase, ...files.map(f => f.name)])
-    e.target.value = ''
+  const { data: docsData, isLoading: docsLoading } = useDocuments()
+  const linkKnowledge = useLinkKnowledge()
+  const unlinkKnowledge = useUnlinkKnowledge()
+  const availableDocuments = docsData?.items ?? []
+
+  const handleLinkDocument = (documentId: string) => {
+    if (!agent.id) return
+    linkKnowledge.mutate(
+      { agentId: agent.id, documentId },
+      {
+        onSuccess: () => {
+          setValue('knowledgeBase', [...knowledgeBase, documentId])
+          toast.success('Document linked to agent')
+        },
+        onError: () => toast.error('Failed to link document'),
+      }
+    )
   }
 
-  const removeFile = (idx: number) => setValue('knowledgeBase', knowledgeBase.filter((_, i) => i !== idx))
+  const handleUnlinkDocument = (documentId: string) => {
+    if (!agent.id) return
+    unlinkKnowledge.mutate(
+      { agentId: agent.id, documentId },
+      {
+        onSuccess: () => {
+          setValue('knowledgeBase', knowledgeBase.filter(id => id !== documentId))
+          toast.success('Document unlinked from agent')
+        },
+        onError: () => toast.error('Failed to unlink document'),
+      }
+    )
+  }
 
   const toggleTool = (idx: number) => {
     const updated = tools.map((t, i) => i === idx ? { ...t, enabled: !t.enabled } : t)
@@ -224,28 +252,78 @@ export function VoiceAgentConfigDrawer({ agent, isOpen, onClose, onSave }: Voice
               {/* ── Knowledge Base ── */}
               <TabsContent value="knowledge" className="mt-0 space-y-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-muted-foreground">{knowledgeBase.length} file(s) uploaded</p>
-                  <label className="cursor-pointer">
-                    <input type="file" multiple accept=".pdf,.docx,.txt" className="sr-only" onChange={handleFileUpload} />
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <span><Plus className="h-3 w-3 mr-1" /><Upload className="h-3 w-3 mr-1" />Upload</span>
-                    </Button>
-                  </label>
+                  <p className="text-sm text-muted-foreground">
+                    {knowledgeBase.length} document(s) linked
+                  </p>
                 </div>
-                {knowledgeBase.length === 0 ? (
+                {docsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-sm text-muted-foreground">Loading documents...</span>
+                  </div>
+                ) : availableDocuments.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-white/10 p-8 text-center text-sm text-muted-foreground">
-                    No files uploaded yet. Upload .pdf, .docx, or .txt files.
+                    No documents available. Upload documents in the Knowledge Base page first.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {knowledgeBase.map((file, idx) => (
-                      <div key={idx} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-2.5">
-                        <span className="text-sm truncate max-w-[80%]">{file}</span>
-                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-300" onClick={() => removeFile(idx)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                    {availableDocuments.map((doc) => {
+                      const isLinked = knowledgeBase.includes(doc.id)
+                      const isProcessing = doc.status === 'processing'
+                      const isMutating = linkKnowledge.isPending || unlinkKnowledge.isPending
+                      return (
+                        <div
+                          key={doc.id}
+                          className={cn(
+                            'flex items-center justify-between rounded-lg border px-4 py-3 transition-colors',
+                            isLinked
+                              ? 'border-blue-500/30 bg-blue-500/10'
+                              : 'border-white/10 bg-white/5'
+                          )}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <FileText className={cn('h-4 w-4 shrink-0', isLinked ? 'text-blue-400' : 'text-muted-foreground')} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{doc.title}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {doc.status === 'ready' ? (
+                                  <span className="flex items-center gap-1 text-xs text-green-400">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Ready
+                                  </span>
+                                ) : doc.status === 'processing' ? (
+                                  <span className="flex items-center gap-1 text-xs text-yellow-400">
+                                    <Clock className="h-3 w-3" />
+                                    Processing
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-xs text-red-400">
+                                    Failed
+                                  </span>
+                                )}
+                                <span className="text-xs text-muted-foreground">{doc.file_type}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant={isLinked ? 'destructive' : 'outline'}
+                            size="sm"
+                            disabled={isMutating || isProcessing}
+                            onClick={() => isLinked ? handleUnlinkDocument(doc.id) : handleLinkDocument(doc.id)}
+                            className="ml-3 shrink-0"
+                          >
+                            {isMutating ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : isLinked ? (
+                              <><Trash2 className="h-3 w-3 mr-1" />Remove</>
+                            ) : (
+                              <><Plus className="h-3 w-3 mr-1" />Add</>
+                            )}
+                          </Button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </TabsContent>

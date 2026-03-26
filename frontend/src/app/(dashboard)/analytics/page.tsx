@@ -1,13 +1,22 @@
 'use client'
 
+import { useState } from 'react'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Slider } from '@/components/ui/slider'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
+} from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { TrendingUp, TrendingDown, DollarSign, Users, Phone, Target, BarChart2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, Users, Phone, Target, BarChart2, Plus, Play, Pause, CheckCircle, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { LoadingState } from '@/components/ui/loading-state'
 import { ErrorState } from '@/components/ui/error-state'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -18,6 +27,9 @@ import {
   useABTests,
   useCostAnalytics,
   useDashboardKPIs,
+  useCreateABTest,
+  useUpdateABTest,
+  useDeleteABTest,
 } from '@/hooks/use-analytics'
 
 // ── Chart tooltip ────────────────────────────────────────────────────────────
@@ -67,6 +79,295 @@ function KPICard({ icon: Icon, label, value, change, positive }: {
 function fmtChange(n: number | undefined): string {
   if (n == null) return '—'
   return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
+}
+
+// ── Status badge helper ──────────────────────────────────────────────────────
+
+const STATUS_BADGE_VARIANT: Record<string, 'secondary' | 'success' | 'warning' | 'default'> = {
+  draft: 'secondary',
+  running: 'success',
+  paused: 'warning',
+  completed: 'default',
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const variant = STATUS_BADGE_VARIANT[status] ?? 'secondary'
+  return (
+    <Badge variant={variant} className="capitalize text-[10px]">
+      {status}
+    </Badge>
+  )
+}
+
+// ── Create A/B Test Dialog ──────────────────────────────────────────────────
+
+function CreateABTestDialog() {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [variantAName, setVariantAName] = useState('Variant A')
+  const [variantBName, setVariantBName] = useState('Variant B')
+  const [variantAConfig, setVariantAConfig] = useState('')
+  const [variantBConfig, setVariantBConfig] = useState('')
+  const [trafficSplit, setTrafficSplit] = useState(50)
+
+  const createMutation = useCreateABTest()
+
+  function resetForm() {
+    setName('')
+    setDescription('')
+    setVariantAName('Variant A')
+    setVariantBName('Variant B')
+    setVariantAConfig('')
+    setVariantBConfig('')
+    setTrafficSplit(50)
+  }
+
+  function parseConfig(raw: string): Record<string, unknown> | undefined {
+    if (!raw.trim()) return undefined
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return undefined
+    }
+  }
+
+  async function handleSubmit() {
+    if (!name.trim()) {
+      toast.error('Test name is required')
+      return
+    }
+
+    const variants = [
+      { name: variantAName, config: parseConfig(variantAConfig), traffic_weight: trafficSplit },
+      { name: variantBName, config: parseConfig(variantBConfig), traffic_weight: 100 - trafficSplit },
+    ]
+
+    try {
+      await createMutation.mutateAsync({ name: name.trim(), description: description.trim() || undefined, variants })
+      toast.success('A/B test created')
+      resetForm()
+      setOpen(false)
+    } catch {
+      toast.error('Failed to create A/B test')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="gap-1.5">
+          <Plus className="h-4 w-4" />
+          Create Test
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create A/B Test</DialogTitle>
+          <DialogDescription>Define two variants to compare agent configurations.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-slate-400 mb-1 block">Test Name</label>
+            <Input placeholder="e.g. Greeting style test" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-400 mb-1 block">Description</label>
+            <Textarea placeholder="What are you testing?" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400">Variant A</label>
+              <Input placeholder="Name" value={variantAName} onChange={e => setVariantAName(e.target.value)} />
+              <Textarea placeholder='Config JSON (optional)&#10;{"tone": "friendly"}' value={variantAConfig} onChange={e => setVariantAConfig(e.target.value)} rows={3} className="font-mono text-xs" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-400">Variant B</label>
+              <Input placeholder="Name" value={variantBName} onChange={e => setVariantBName(e.target.value)} />
+              <Textarea placeholder='Config JSON (optional)&#10;{"tone": "professional"}' value={variantBConfig} onChange={e => setVariantBConfig(e.target.value)} rows={3} className="font-mono text-xs" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-400 mb-2 block">
+              Traffic Split: {trafficSplit}% / {100 - trafficSplit}%
+            </label>
+            <Slider value={trafficSplit} min={10} max={90} step={5} onValueChange={setTrafficSplit} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating...' : 'Create Test'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Delete Confirmation Dialog ──────────────────────────────────────────────
+
+function DeleteConfirmDialog({ testId, testName }: { testId: string; testName: string }) {
+  const [open, setOpen] = useState(false)
+  const deleteMutation = useDeleteABTest()
+
+  async function handleDelete() {
+    try {
+      await deleteMutation.mutateAsync(testId)
+      toast.success(`"${testName}" deleted`)
+      setOpen(false)
+    } catch {
+      toast.error('Failed to delete test')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete A/B Test</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete &ldquo;{testName}&rdquo;? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── A/B Tests Section ───────────────────────────────────────────────────────
+
+function ABTestsSection({ tests, isLoading }: { tests: import('@/lib/api-types').ABTest[] | undefined; isLoading: boolean }) {
+  const updateMutation = useUpdateABTest()
+
+  async function handleStatusChange(id: string, newStatus: string) {
+    try {
+      await updateMutation.mutateAsync({ id, updates: { status: newStatus } })
+      toast.success(`Test ${newStatus}`)
+    } catch {
+      toast.error('Failed to update test status')
+    }
+  }
+
+  if (isLoading) return <LoadingState variant="skeleton-cards" count={3} />
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">A/B Tests</h2>
+        <CreateABTestDialog />
+      </div>
+
+      {!tests?.length ? (
+        <EmptyState icon={BarChart2} title="No A/B tests" description="Create A/B tests to compare agent configurations." />
+      ) : (
+        tests.map(test => {
+          const hasVariants = test.variantA && test.variantB
+          const winner = hasVariants && test.variantA.convRate > test.variantB.convRate ? 'A' : 'B'
+          const lift = hasVariants ? Math.abs(test.variantA.convRate - test.variantB.convRate).toFixed(1) : '0'
+
+          return (
+            <Card key={test.id} className="glass-card">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">{test.name}</CardTitle>
+                    {test.description && (
+                      <p className="text-xs text-slate-500 mt-0.5">{test.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={test.status} />
+                    {test.confidence != null && (
+                      <span className="text-xs text-slate-500">{test.confidence}% confidence</span>
+                    )}
+                    {/* Status action buttons */}
+                    {(test.status === 'draft' || test.status === 'paused') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                        onClick={() => handleStatusChange(test.id, 'running')}
+                        disabled={updateMutation.isPending}
+                        title="Start test"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {test.status === 'running' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10"
+                        onClick={() => handleStatusChange(test.id, 'paused')}
+                        disabled={updateMutation.isPending}
+                        title="Pause test"
+                      >
+                        <Pause className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {(test.status === 'running' || test.status === 'paused') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                        onClick={() => handleStatusChange(test.id, 'completed')}
+                        disabled={updateMutation.isPending}
+                        title="Complete test"
+                      >
+                        <CheckCircle className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <DeleteConfirmDialog testId={test.id} testName={test.name} />
+                  </div>
+                </div>
+              </CardHeader>
+              {hasVariants && (
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[test.variantA, test.variantB].map((v, i) => {
+                      const label = i === 0 ? 'A' : 'B'
+                      const isWinner = label === winner && (test.confidence ?? 0) >= 90
+                      return (
+                        <div key={label} className={`rounded-lg border p-4 ${isWinner ? 'border-green-500/30 bg-green-500/5' : 'border-white/10 bg-white/[0.02]'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-500">Variant {label}</span>
+                              {isWinner && <Badge variant="success" className="text-[10px]">Winner</Badge>}
+                            </div>
+                          </div>
+                          <p className="text-sm font-medium mb-1">{v.name}</p>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-bold">{v.convRate}%</span>
+                            <span className="text-xs text-slate-500">conv. rate</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{v.calls} calls</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-3 text-center">
+                    {lift}pp lift &middot; {(test.confidence ?? 0) >= 95 ? 'Statistically significant' : (test.confidence ?? 0) >= 80 ? 'Trending significant' : 'Not yet significant'}
+                  </p>
+                </CardContent>
+              )}
+            </Card>
+          )
+        })
+      )}
+    </>
+  )
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -290,58 +591,7 @@ export default function AnalyticsPage() {
 
         {/* A/B Tests */}
         <TabsContent value="ab-tests" className="mt-6 space-y-4">
-          {abLoading ? (
-            <LoadingState variant="skeleton-cards" count={3} />
-          ) : !abTests?.length ? (
-            <EmptyState icon={BarChart2} title="No A/B tests" description="Create A/B tests to compare agent configurations." />
-          ) : (
-            abTests.map(test => {
-              const winner = test.variantA.convRate > test.variantB.convRate ? 'A' : 'B'
-              const lift = Math.abs(test.variantA.convRate - test.variantB.convRate).toFixed(1)
-              return (
-                <Card key={test.id} className="glass-card">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">{test.name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={test.status === 'running' ? 'success' : 'secondary'} className="capitalize text-[10px]">
-                          {test.status}
-                        </Badge>
-                        <span className="text-xs text-slate-500">{test.confidence}% confidence</span>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-4">
-                      {[test.variantA, test.variantB].map((v, i) => {
-                        const label = i === 0 ? 'A' : 'B'
-                        const isWinner = label === winner && test.confidence >= 90
-                        return (
-                          <div key={label} className={`rounded-lg border p-4 ${isWinner ? 'border-green-500/30 bg-green-500/5' : 'border-white/10 bg-white/[0.02]'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500">Variant {label}</span>
-                                {isWinner && <Badge variant="success" className="text-[10px]">Winner</Badge>}
-                              </div>
-                            </div>
-                            <p className="text-sm font-medium mb-1">{v.name}</p>
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-2xl font-bold">{v.convRate}%</span>
-                              <span className="text-xs text-slate-500">conv. rate</span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-1">{v.calls} calls</p>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-3 text-center">
-                      {lift}pp lift &middot; {test.confidence >= 95 ? 'Statistically significant' : test.confidence >= 80 ? 'Trending significant' : 'Not yet significant'}
-                    </p>
-                  </CardContent>
-                </Card>
-              )
-            })
-          )}
+          <ABTestsSection tests={abTests} isLoading={abLoading} />
         </TabsContent>
 
         {/* Cost Analytics */}

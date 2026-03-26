@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
+import { toast } from 'sonner'
 import { SkeletonToContent } from '@/components/animations'
 import { CallHistorySkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
@@ -195,6 +196,34 @@ function CallDetailPanel({ callId, call }: { callId: string; call: CallRecord })
           </span>
         </div>
 
+        {/* Call Quality */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <h4 className="text-xs font-semibold text-slate-400 mb-2">Call Quality</h4>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Sentiment</span>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                call.aiScore === 0 ? 'bg-slate-500/20 text-slate-400' :
+                call.aiScore < 30 ? 'bg-red-500/20 text-red-400' :
+                call.aiScore <= 60 ? 'bg-yellow-500/20 text-yellow-400' :
+                'bg-green-500/20 text-green-400'
+              }`}>
+                {call.aiScore === 0 ? 'N/A' : `${call.aiScore}/100`}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Duration</span>
+              <span className="text-xs font-semibold text-slate-300">{formatDuration(call.duration)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Status</span>
+              <Badge variant={call.status === 'completed' ? 'success' : call.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">
+                {call.status}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
         {/* Audio player placeholder */}
         {call.duration > 0 && (
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
@@ -343,7 +372,27 @@ export default function CallHistoryPage() {
             {callsData ? ` (${callsData.total} total)` : ''}
           </p>
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="gap-2" onClick={() => {
+          const headers = ['Date', 'Direction', 'From', 'To', 'Duration', 'Status', 'Sentiment']
+          const rows = filteredCalls.map(c => [
+            `${c.date} ${c.time}`,
+            c.direction,
+            c.callerName,
+            c.callerPhone,
+            c.duration ?? 0,
+            c.status,
+            c.aiScore ?? '',
+          ])
+          const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+          const blob = new Blob([csv], { type: 'text/csv' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `calls-export-${new Date().toISOString().split('T')[0]}.csv`
+          a.click()
+          URL.revokeObjectURL(url)
+          toast.success('Call history exported')
+        }}>
           <Download className="h-4 w-4" />
           Export
         </Button>

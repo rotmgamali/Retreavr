@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
 import type {
   DashboardKPIs,
@@ -95,5 +95,31 @@ export function useCostAnalytics() {
     queryKey: ['analytics', 'costs'],
     queryFn: () => api.get<CostRow[]>('/analytics/costs'),
     staleTime: 300_000,
+  })
+}
+
+export function useCreateABTest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; description?: string; variants: { name: string; config?: Record<string, unknown>; traffic_weight?: number }[] }) =>
+      api.post('/analytics/ab-tests', data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+  })
+}
+
+export function useUpdateABTest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: { name?: string; description?: string; status?: string } }) =>
+      api.patch(`/analytics/ab-tests/${id}`, updates),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+  })
+}
+
+export function useDeleteABTest() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/analytics/ab-tests/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analytics'] }),
   })
 }

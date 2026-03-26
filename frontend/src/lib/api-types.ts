@@ -158,7 +158,8 @@ export interface ABTestVariant {
 export interface ABTest {
   id: string
   name: string
-  status: 'running' | 'completed' | 'paused'
+  description?: string
+  status: 'draft' | 'running' | 'completed' | 'paused'
   variantA: ABTestVariant
   variantB: ABTestVariant
   confidence: number

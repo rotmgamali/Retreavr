@@ -61,3 +61,28 @@ export function useDeleteCampaign() {
     },
   })
 }
+
+export function useStartCampaign() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/campaigns/${id}/start`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns'] }),
+  })
+}
+
+export function useStopCampaign() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/campaigns/${id}/stop`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns'] }),
+  })
+}
+
+export function useCampaignStatus(id: string | null) {
+  return useQuery({
+    queryKey: ['campaigns', id, 'status'],
+    queryFn: () => api.get<{ campaign_id: string; autodialer_running: boolean; leads_dialed: number; leads_remaining: number }>(`/campaigns/${id}/status`),
+    enabled: !!id,
+    refetchInterval: 5000,
+  })
+}

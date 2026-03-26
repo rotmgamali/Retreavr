@@ -2,16 +2,32 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import case, cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_org, get_db
+from app.api.deps import get_current_org, get_db, require_role
 from app.models.analytics import ABTest, ABTestResult, ABTestVariant
 from app.models.calls import Call, CallSentiment
 from app.models.leads import Lead
+from app.models.user import User
 from app.models.voice_agents import VoiceAgent
 from app.models.campaigns import Campaign, CampaignLead
+
+
+# ── Pydantic request schemas ────────────────────────────────────────────────
+
+class ABTestCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    variants: list[dict]  # [{"name": "Variant A", "config": {...}, "traffic_weight": 50}, ...]
+
+
+class ABTestUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None  # draft, running, paused, completed
 
 # Estimated cost per minute of call (USD)
 _COST_PER_MINUTE = 0.05
@@ -180,6 +196,81 @@ async def get_ab_tests(
         output.append(entry)
 
     return output
+
+
+@router.post("/ab-tests", status_code=status.HTTP_201_CREATED)
+async def create_ab_test(
+    body: ABTestCreateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    """Create a new A/B test with variants."""
+    test = ABTest(
+        organization_id=org_id,
+        name=body.name,
+        description=body.description,
+        status="draft",
+    )
+    db.add(test)
+    await db.flush()
+
+    for v in body.variants:
+        variant = ABTestVariant(
+            ab_test_id=test.id,
+            name=v["name"],
+            config=v.get("config"),
+            traffic_weight=v.get("traffic_weight", 50),
+        )
+        db.add(variant)
+
+    await db.flush()
+    await db.commit()
+    await db.refresh(test)
+    return {"id": str(test.id), "name": test.name, "status": test.status}
+
+
+@router.patch("/ab-tests/{test_id}")
+async def update_ab_test(
+    test_id: uuid.UUID,
+    body: ABTestUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    """Update an A/B test (name, description, status)."""
+    test = await db.get(ABTest, test_id)
+    if not test or test.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="A/B test not found")
+
+    ALLOWED = {"name", "description", "status"}
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field in ALLOWED:
+            setattr(test, field, value)
+
+    await db.flush()
+    await db.commit()
+    await db.refresh(test)
+    return {"id": str(test.id), "name": test.name, "status": test.status}
+
+
+@router.delete("/ab-tests/{test_id}")
+async def delete_ab_test(
+    test_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+):
+    """Delete an A/B test."""
+    test = await db.get(ABTest, test_id)
+    if not test or test.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="A/B test not found")
+
+    await db.delete(test)
+    await db.flush()
+    await db.commit()
+    return {"status": "deleted"}
+
 
 @router.get("/costs-legacy")
 async def get_costs_legacy(

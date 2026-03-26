@@ -2,12 +2,13 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user, get_current_org, get_db
+from app.api.deps import get_current_active_user, get_current_org, get_db, require_role
 from app.models.user import User
+from app.services.audit import log_audit_event
 from app.models.voice_agents import AgentConfig, AgentKnowledgeBase, VoiceAgent
 from app.schemas.common import PaginatedResponse
 from app.schemas.voice_agents import (
@@ -57,12 +58,22 @@ async def get_voice_agent(
 @router.post("/", response_model=VoiceAgentResponse, status_code=status.HTTP_201_CREATED)
 async def create_voice_agent(
     body: VoiceAgentCreate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     agent = VoiceAgent(**{**body.model_dump(), "organization_id": org_id})
     db.add(agent)
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="voice_agent.created",
+        resource_type="voice_agent",
+        resource_id=str(agent.id),
+        details={"name": agent.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(agent)
     return agent
@@ -72,19 +83,30 @@ async def create_voice_agent(
 async def update_voice_agent(
     agent_id: uuid.UUID,
     body: VoiceAgentUpdate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice agent not found")
 
     AGENT_UPDATE_FIELDS = {"name", "persona", "system_prompt", "voice", "status", "vad_config"}
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         if field in AGENT_UPDATE_FIELDS:
             setattr(agent, field, value)
 
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="voice_agent.updated",
+        resource_type="voice_agent",
+        resource_id=str(agent.id),
+        details={"name": agent.name, "fields_updated": list(updates.keys())},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(agent)
     return agent
@@ -93,14 +115,24 @@ async def update_voice_agent(
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_voice_agent(
     agent_id: uuid.UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     agent = await db.get(VoiceAgent, agent_id)
     if not agent or agent.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice agent not found")
     agent.status = "inactive"
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="voice_agent.deleted",
+        resource_type="voice_agent",
+        resource_id=str(agent_id),
+        details={"name": agent.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
 

@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { SkeletonToContent } from '@/components/animations';
 import { SettingsSkeleton } from '@/components/ui/page-skeletons';
 import { usePageLoading } from '@/hooks/use-page-loading';
-import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations, useOrganization, useUpdateOrganization } from '@/hooks/use-settings';
+import { useTeamMembers, useAddTeamMember, useUpdateTeamMember, useUpdateIntegration, useIntegrations, useOrganization, useUpdateOrganization, useDncList, useUploadDnc, useClearDnc, useNotificationRules, useCreateNotificationRule, useUpdateNotificationRule, useApiKeys, useCreateApiKey, useRevokeApiKey, useAuditLogs } from '@/hooks/use-settings';
+import type { NotificationRule, ApiKeyCreated, AuditLogEntry } from '@/hooks/use-settings';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +19,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { Loader2, AlertTriangle, Link2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+
+import { Loader2, AlertTriangle, Link2, Upload, Trash2, Bell, ShieldCheck, Key, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { api } from '@/lib/api-client';
+import { toast as sonnerToast } from 'sonner';
 
 // ─── Inline state components ─────────────────────────────────────────────────
 
@@ -196,8 +202,51 @@ export default function SettingsPage() {
   });
   const [retention, setRetention] = useState(90);
 
+  // ── DNC List (real API) ──
+  const dncQuery = useDncList();
+  const uploadDnc = useUploadDnc();
+  const clearDnc = useClearDnc();
+  const [dncPage, setDncPage] = useState(0);
+  const DNC_PAGE_SIZE = 50;
+  const dncNumbers = dncQuery.data?.numbers ?? [];
+  const dncTotal = dncQuery.data?.total ?? 0;
+  const dncPageCount = Math.max(1, Math.ceil(dncNumbers.length / DNC_PAGE_SIZE));
+  const dncPageNumbers = dncNumbers.slice(dncPage * DNC_PAGE_SIZE, (dncPage + 1) * DNC_PAGE_SIZE);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // ── Notification Rules (real API) ──
+  const notifRulesQuery = useNotificationRules();
+  const createNotifRule = useCreateNotificationRule();
+  const updateNotifRule = useUpdateNotificationRule();
+  const [showCreateRule, setShowCreateRule] = useState(false);
+  const [newRule, setNewRule] = useState({ name: '', trigger_event: 'call_completed', conditions: '', actionType: 'email', actionTarget: '' });
+
+  // ── API Keys (real API) ──
+  const apiKeysQuery = useApiKeys();
+  const createApiKeyMutation = useCreateApiKey();
+  const revokeApiKeyMutation = useRevokeApiKey();
+  const [showCreateKey, setShowCreateKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+
   // ── Branding ──
   const [brand, setBrand] = useState({ company: 'Retrevr Insurance', color: '#3b82f6', logo: '' });
+
+  // ── Audit Log ──
+  const [showAuditLog, setShowAuditLog] = useState(false);
+  const [auditPage, setAuditPage] = useState(0);
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('');
+  const AUDIT_PAGE_SIZE = 20;
+  const auditLogsQuery = useAuditLogs(showAuditLog ? {
+    limit: AUDIT_PAGE_SIZE,
+    offset: auditPage * AUDIT_PAGE_SIZE,
+    ...(auditActionFilter ? { action: auditActionFilter } : {}),
+  } : undefined);
+
+  const formatActionName = (action: string) =>
+    action.split('.').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   // ── Sync state from org settings on load ──
   useEffect(() => {
@@ -289,9 +338,9 @@ export default function SettingsPage() {
 
       <Tabs defaultValue="integrations">
         <TabsList className="flex h-auto flex-wrap gap-1 p-1">
-          {['integrations', 'team', 'billing', 'notifications', 'compliance', 'branding'].map(tab => (
+          {['integrations', 'team', 'api-keys', 'billing', 'notifications', 'compliance', 'branding'].map(tab => (
             <TabsTrigger key={tab} value={tab} className="capitalize px-4 py-2">
-              {tab === 'team' ? 'Team' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'team' ? 'Team' : tab === 'api-keys' ? 'API Keys' : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -424,6 +473,166 @@ export default function SettingsPage() {
           </Section>
         </TabsContent>
 
+        {/* ── Tab: API Keys ──────────────────────────────────────────── */}
+        <TabsContent value="api-keys" className="mt-6 space-y-4">
+          <Section title="API Keys" description="Manage API keys for programmatic access to your organization">
+            <div className="mb-4 flex justify-end">
+              <Button size="sm" onClick={() => setShowCreateKey(true)}>
+                + Create API Key
+              </Button>
+            </div>
+
+            {apiKeysQuery.isLoading ? (
+              <LoadingState variant="skeleton-table" count={3} />
+            ) : apiKeysQuery.isError ? (
+              <ErrorState title="Failed to load API keys" onRetry={() => apiKeysQuery.refetch()} />
+            ) : (apiKeysQuery.data ?? []).length === 0 ? (
+              <EmptyState icon={Key} title="No API keys" description="Create an API key to get started with the API." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left text-xs text-muted-foreground">
+                      <th className="pb-3 pr-4 font-medium">Name</th>
+                      <th className="pb-3 pr-4 font-medium">Key</th>
+                      <th className="pb-3 pr-4 font-medium">Status</th>
+                      <th className="pb-3 pr-4 font-medium">Last Used</th>
+                      <th className="pb-3 pr-4 font-medium">Created</th>
+                      <th className="pb-3 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(apiKeysQuery.data ?? []).map(apiKey => (
+                      <tr key={apiKey.id} className="border-b border-white/5 last:border-0">
+                        <td className="py-3 pr-4 font-medium">{apiKey.name}</td>
+                        <td className="py-3 pr-4 font-mono text-xs text-muted-foreground">{apiKey.key_prefix}...</td>
+                        <td className="py-3 pr-4">
+                          <Badge variant={apiKey.is_active ? 'success' : 'destructive'}>
+                            {apiKey.is_active ? 'Active' : 'Revoked'}
+                          </Badge>
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground text-xs">
+                          {apiKey.last_used_at ? new Date(apiKey.last_used_at).toLocaleDateString() : 'Never'}
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground text-xs">
+                          {new Date(apiKey.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-3">
+                          {apiKey.is_active && (
+                            showRevokeConfirm === apiKey.id ? (
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                                  disabled={revokeApiKeyMutation.isPending}
+                                  onClick={async () => {
+                                    await revokeApiKeyMutation.mutateAsync(apiKey.id);
+                                    setShowRevokeConfirm(null);
+                                    showToast('API key revoked');
+                                  }}>
+                                  Confirm
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                                  onClick={() => setShowRevokeConfirm(null)}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                                onClick={() => setShowRevokeConfirm(apiKey.id)}>
+                                Revoke
+                              </Button>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+
+          {/* Create API Key Dialog */}
+          <Dialog open={showCreateKey} onOpenChange={setShowCreateKey}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create API Key</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Key Name</label>
+                  <Input
+                    placeholder="e.g. Production Backend"
+                    value={newKeyName}
+                    onChange={e => setNewKeyName(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">A descriptive name to identify this key</p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => { setShowCreateKey(false); setNewKeyName(''); }}>
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={!newKeyName.trim() || createApiKeyMutation.isPending}
+                    onClick={async () => {
+                      const result = await createApiKeyMutation.mutateAsync({ name: newKeyName.trim() });
+                      setCreatedKey(result);
+                      setShowCreateKey(false);
+                      setNewKeyName('');
+                    }}
+                  >
+                    {createApiKeyMutation.isPending ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...</>
+                    ) : 'Create Key'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Created Key One-Time Display Dialog */}
+          <Dialog open={!!createdKey} onOpenChange={(open) => { if (!open) { setCreatedKey(null); setCopiedKey(false); } }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>API Key Created</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                  This key will not be shown again. Copy it now and store it securely.
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Your API Key</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={createdKey?.full_key ?? ''}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => {
+                        if (createdKey?.full_key) {
+                          navigator.clipboard.writeText(createdKey.full_key);
+                          setCopiedKey(true);
+                          setTimeout(() => setCopiedKey(false), 2000);
+                        }
+                      }}
+                    >
+                      {copiedKey ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={() => { setCreatedKey(null); setCopiedKey(false); }}>
+                    Done
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
         {/* ── Tab 3: Billing ──────────────────────────────────────────── */}
         <TabsContent value="billing" className="mt-6 space-y-4">
           {/* Current plan */}
@@ -498,13 +707,165 @@ export default function SettingsPage() {
             <div className="flex gap-3">
               <Input placeholder="https://hooks.slack.com/services/…" value={slackWebhook}
                 onChange={e => setSlackWebhook(e.target.value)} className="flex-1" />
-              <Button size="sm" variant="outline" onClick={() => showToast('Test message sent to Slack')}>Test</Button>
+              <Button size="sm" variant="outline" onClick={async () => {
+                if (!slackWebhook) { sonnerToast.error('Enter a webhook URL first'); return; }
+                try {
+                  await fetch(slackWebhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: 'Test notification from Retrevr Insurance Platform' }),
+                  });
+                  sonnerToast.success('Test message sent to Slack');
+                } catch {
+                  sonnerToast.error('Failed to send test message');
+                }
+              }}>Test</Button>
               <Button size="sm" disabled={updateOrgMutation.isPending} onClick={async () => {
                 await saveOrgSettings({ notifications: { ...notifs, slack_webhook: slackWebhook } });
                 showToast('Slack webhook saved');
               }}>Save</Button>
             </div>
           </Section>
+
+          {/* ── Notification Rules ── */}
+          <Section title="Notification Rules" description="Automated rules that trigger actions on specific events">
+            <div className="mb-4 flex justify-end">
+              <Button size="sm" onClick={() => setShowCreateRule(true)}>
+                + Create Rule
+              </Button>
+            </div>
+
+            {notifRulesQuery.isLoading ? (
+              <LoadingState />
+            ) : notifRulesQuery.isError ? (
+              <ErrorState title="Failed to load notification rules" onRetry={() => notifRulesQuery.refetch()} />
+            ) : (notifRulesQuery.data ?? []).length === 0 ? (
+              <EmptyState icon={Bell} title="No notification rules" description="Create a rule to automate notifications based on events." />
+            ) : (
+              <div className="space-y-2">
+                {(notifRulesQuery.data ?? []).map((rule: NotificationRule) => (
+                  <div key={rule.id} className="flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/5 p-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{rule.name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="info" className="text-[10px]">{rule.trigger_event.replace(/_/g, ' ')}</Badge>
+                        {rule.actions && (
+                          <span className="text-xs text-muted-foreground">
+                            {(rule.actions as Record<string, string>).type ?? 'action'} &rarr; {(rule.actions as Record<string, string>).target ?? ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={rule.is_active}
+                      onCheckedChange={(checked) => {
+                        updateNotifRule.mutate(
+                          { id: rule.id, updates: { is_active: checked } },
+                          {
+                            onSuccess: () => showToast(`Rule "${rule.name}" ${checked ? 'enabled' : 'disabled'}`),
+                            onError: () => showToast(`Failed to update rule "${rule.name}"`),
+                          }
+                        );
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {/* Create Rule Dialog */}
+          <Dialog open={showCreateRule} onOpenChange={setShowCreateRule}>
+            <DialogContent className="max-w-md bg-[#0f172a] border-white/10">
+              <DialogHeader>
+                <DialogTitle>Create Notification Rule</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Rule Name</label>
+                  <Input
+                    placeholder="e.g. Email on missed call"
+                    value={newRule.name}
+                    onChange={e => setNewRule(p => ({ ...p, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Trigger Event</label>
+                  <Select value={newRule.trigger_event} onValueChange={v => setNewRule(p => ({ ...p, trigger_event: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['call_completed', 'lead_created', 'campaign_started', 'campaign_finished', 'missed_call', 'low_sentiment'].map(ev => (
+                        <SelectItem key={ev} value={ev} className="text-xs">{ev.replace(/_/g, ' ')}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Conditions (JSON, optional)</label>
+                  <Textarea
+                    placeholder='{"min_duration": 30}'
+                    value={newRule.conditions}
+                    onChange={e => setNewRule(p => ({ ...p, conditions: e.target.value }))}
+                    className="font-mono text-xs"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">Action Type</label>
+                  <Select value={newRule.actionType} onValueChange={v => setNewRule(p => ({ ...p, actionType: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['email', 'slack', 'webhook'].map(t => (
+                        <SelectItem key={t} value={t} className="capitalize text-xs">{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">
+                    {newRule.actionType === 'email' ? 'Email Address' : newRule.actionType === 'slack' ? 'Slack Channel / Webhook' : 'Webhook URL'}
+                  </label>
+                  <Input
+                    placeholder={newRule.actionType === 'email' ? 'alerts@company.com' : newRule.actionType === 'slack' ? '#alerts' : 'https://...'}
+                    value={newRule.actionTarget}
+                    onChange={e => setNewRule(p => ({ ...p, actionTarget: e.target.value }))}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button size="sm" variant="outline" onClick={() => setShowCreateRule(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    disabled={!newRule.name || !newRule.actionTarget || createNotifRule.isPending}
+                    onClick={() => {
+                      let conditions: Record<string, unknown> | undefined;
+                      if (newRule.conditions.trim()) {
+                        try { conditions = JSON.parse(newRule.conditions); } catch { showToast('Invalid JSON in conditions'); return; }
+                      }
+                      createNotifRule.mutate(
+                        {
+                          name: newRule.name,
+                          trigger_event: newRule.trigger_event,
+                          conditions,
+                          actions: { type: newRule.actionType, target: newRule.actionTarget },
+                        },
+                        {
+                          onSuccess: () => {
+                            showToast(`Rule "${newRule.name}" created`);
+                            setNewRule({ name: '', trigger_event: 'call_completed', conditions: '', actionType: 'email', actionTarget: '' });
+                            setShowCreateRule(false);
+                          },
+                          onError: () => showToast('Failed to create rule'),
+                        }
+                      );
+                    }}
+                  >
+                    {createNotifRule.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    Create Rule
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* ── Tab 5: Compliance ───────────────────────────────────────── */}
@@ -549,14 +910,240 @@ export default function SettingsPage() {
 
           <Section title="Data Management">
             <div className="flex flex-wrap gap-3">
-              <Button variant="outline" size="sm" onClick={() => showToast('Data export initiated — you will receive an email shortly')}>
+              <Button variant="outline" size="sm" onClick={async () => {
+                try {
+                  const orgData = await api.get('/settings/organization');
+                  const integrations = await api.get('/settings/integrations');
+                  const exportData = { organization: orgData, integrations, exported_at: new Date().toISOString() };
+                  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `retrevr-export-${new Date().toISOString().split('T')[0]}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  sonnerToast.success('Data exported successfully');
+                } catch {
+                  sonnerToast.error('Failed to export data');
+                }
+              }}>
                 Download Data Export
               </Button>
-              <Button variant="outline" size="sm" onClick={() => showToast('Audit log opened')}>
+              <Button variant="outline" size="sm" onClick={() => { setShowAuditLog(true); setAuditPage(0); setAuditActionFilter(''); }}>
                 View Audit Log
               </Button>
             </div>
           </Section>
+
+          {/* Audit Log Dialog */}
+          <Dialog open={showAuditLog} onOpenChange={setShowAuditLog}>
+            <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Audit Log</DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                <label className="text-xs text-muted-foreground shrink-0">Filter by action:</label>
+                <Select value={auditActionFilter || '__all__'} onValueChange={v => { setAuditActionFilter(v === '__all__' ? '' : v); setAuditPage(0); }}>
+                  <SelectTrigger className="h-8 w-52 text-xs"><SelectValue placeholder="All actions" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Actions</SelectItem>
+                    <SelectItem value="campaign.created">Campaign Created</SelectItem>
+                    <SelectItem value="campaign.started">Campaign Started</SelectItem>
+                    <SelectItem value="campaign.stopped">Campaign Stopped</SelectItem>
+                    <SelectItem value="voice_agent.created">Voice Agent Created</SelectItem>
+                    <SelectItem value="voice_agent.updated">Voice Agent Updated</SelectItem>
+                    <SelectItem value="voice_agent.deleted">Voice Agent Deleted</SelectItem>
+                    <SelectItem value="integration.created">Integration Created</SelectItem>
+                    <SelectItem value="integration.updated">Integration Updated</SelectItem>
+                    <SelectItem value="dnc.uploaded">DNC Uploaded</SelectItem>
+                    <SelectItem value="dnc.cleared">DNC Cleared</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {auditLogsQuery.isLoading ? (
+                  <LoadingState />
+                ) : auditLogsQuery.isError ? (
+                  <ErrorState title="Failed to load audit logs" onRetry={() => auditLogsQuery.refetch()} />
+                ) : !auditLogsQuery.data?.items?.length ? (
+                  <EmptyState title="No audit events" description="No audit log entries match the current filter." />
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 text-left text-xs text-muted-foreground">
+                        <th className="pb-2 pr-3 font-medium">Time</th>
+                        <th className="pb-2 pr-3 font-medium">Action</th>
+                        <th className="pb-2 pr-3 font-medium">Resource</th>
+                        <th className="pb-2 pr-3 font-medium">Details</th>
+                        <th className="pb-2 font-medium">IP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogsQuery.data.items.map((entry: AuditLogEntry) => (
+                        <tr key={entry.id} className="border-b border-white/5 last:border-0">
+                          <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(entry.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <Badge variant="info" className="text-[10px]">
+                              {formatActionName(entry.action)}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-muted-foreground">
+                            {entry.resource_type ? (
+                              <span>{entry.resource_type}{entry.resource_id ? ` #${entry.resource_id.slice(0, 8)}` : ''}</span>
+                            ) : (
+                              <span className="text-slate-600">--</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-muted-foreground max-w-[200px] truncate">
+                            {entry.details ? Object.entries(entry.details).map(([k, v]) => `${k}: ${v}`).join(', ') : '--'}
+                          </td>
+                          <td className="py-2 text-xs text-muted-foreground font-mono">
+                            {entry.ip_address ?? '--'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              {auditLogsQuery.data && auditLogsQuery.data.total > AUDIT_PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-3 border-t border-white/10">
+                  <span className="text-xs text-muted-foreground">
+                    Showing {auditPage * AUDIT_PAGE_SIZE + 1}--{Math.min((auditPage + 1) * AUDIT_PAGE_SIZE, auditLogsQuery.data.total)} of {auditLogsQuery.data.total}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 w-7 p-0"
+                      disabled={auditPage === 0}
+                      onClick={() => setAuditPage(p => p - 1)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 w-7 p-0"
+                      disabled={(auditPage + 1) * AUDIT_PAGE_SIZE >= auditLogsQuery.data.total}
+                      onClick={() => setAuditPage(p => p + 1)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {/* ── DNC List Management ── */}
+          <Section title="Do Not Call (DNC) List" description="Manage phone numbers excluded from all campaigns">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-400" />
+                <span className="text-sm text-slate-300"><span className="font-semibold text-white">{dncTotal}</span> numbers on DNC list</span>
+              </div>
+              <div className="ml-auto flex gap-2">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        uploadDnc.mutate(file, {
+                          onSuccess: (data) => showToast(`Uploaded ${data.new_added} new numbers to DNC list`),
+                          onError: () => showToast('Failed to upload DNC list'),
+                        });
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium hover:bg-white/10 transition-colors cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    Upload CSV
+                  </span>
+                </label>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-8 text-xs"
+                  disabled={dncTotal === 0}
+                  onClick={() => setShowClearConfirm(true)}
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            {uploadDnc.isPending && (
+              <div className="flex items-center gap-2 mb-3 text-xs text-blue-400">
+                <Loader2 className="w-3 h-3 animate-spin" /> Uploading...
+              </div>
+            )}
+
+            {dncQuery.isLoading ? (
+              <LoadingState />
+            ) : dncNumbers.length === 0 ? (
+              <EmptyState icon={ShieldCheck} title="No DNC numbers" description="Upload a CSV file to add phone numbers to the Do Not Call list." />
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 text-left text-xs text-muted-foreground">
+                        <th className="pb-3 pr-4 font-medium">#</th>
+                        <th className="pb-3 font-medium">Phone Number</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dncPageNumbers.map((num, i) => (
+                        <tr key={num} className="border-b border-white/5 last:border-0">
+                          <td className="py-2 pr-4 text-muted-foreground tabular-nums">{dncPage * DNC_PAGE_SIZE + i + 1}</td>
+                          <td className="py-2 font-mono text-xs">{num}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {dncPageCount > 1 && (
+                  <div className="flex items-center justify-between pt-3 text-xs text-muted-foreground">
+                    <span>Page {dncPage + 1} of {dncPageCount}</span>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={dncPage === 0} onClick={() => setDncPage(p => p - 1)}>Prev</Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={dncPage >= dncPageCount - 1} onClick={() => setDncPage(p => p + 1)}>Next</Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </Section>
+
+          {/* Clear DNC Confirmation Dialog */}
+          <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+            <DialogContent className="max-w-sm bg-[#0f172a] border-white/10">
+              <DialogHeader>
+                <DialogTitle>Clear DNC List</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">Are you sure you want to remove all {dncTotal} numbers from the Do Not Call list? This action cannot be undone.</p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button size="sm" variant="outline" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
+                <Button size="sm" variant="destructive" disabled={clearDnc.isPending} onClick={() => {
+                  clearDnc.mutate(undefined, {
+                    onSuccess: () => { showToast('DNC list cleared'); setShowClearConfirm(false); },
+                    onError: () => showToast('Failed to clear DNC list'),
+                  });
+                }}>
+                  {clearDnc.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                  Clear All
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* ── Tab 6: Branding ─────────────────────────────────────────── */}

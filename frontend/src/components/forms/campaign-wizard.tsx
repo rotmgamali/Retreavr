@@ -13,12 +13,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { Check, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface CampaignFormData {
   name: string
-  type: 'outbound' | 'inbound' | 'follow-up' | 'renewal'
+  type: 'outbound' | 'inbound' | 'follow-up' | 'renewal' | 'email' | 'sms'
   description: string
   startDate: string
   endDate: string
@@ -34,6 +35,13 @@ export interface CampaignFormData {
   maxCallsPerHour: number
   maxCallsPerDay: number
   timezone: string
+  // Email campaign fields
+  emailSubject: string
+  emailFromAddress: string
+  emailBody: string
+  // SMS campaign fields
+  smsMessageBody: string
+  smsFromNumber: string
 }
 
 export interface CampaignWizardProps {
@@ -97,6 +105,11 @@ const DEFAULT_DATA: CampaignFormData = {
   maxCallsPerHour: 20,
   maxCallsPerDay: 150,
   timezone: 'America/New_York',
+  emailSubject: '',
+  emailFromAddress: '',
+  emailBody: '',
+  smsMessageBody: '',
+  smsFromNumber: '',
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -148,6 +161,8 @@ function StepBasicInfo({ data, set }: { data: CampaignFormData; set: (k: keyof C
           <option value="inbound">Inbound</option>
           <option value="follow-up">Follow-up</option>
           <option value="renewal">Renewal</option>
+          <option value="email">Email</option>
+          <option value="sms">SMS</option>
         </select>
       </FieldWrap>
 
@@ -172,6 +187,82 @@ function StepBasicInfo({ data, set }: { data: CampaignFormData; set: (k: keyof C
           <Input type="date" value={data.endDate} onChange={e => set('endDate', e.target.value)} />
         </FieldWrap>
       </div>
+
+      {/* Email-specific fields */}
+      {data.type === 'email' && (
+        <div className="space-y-4 pt-4 border-t border-white/10">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Email Settings</p>
+          <FieldWrap>
+            <Label required>Subject Line</Label>
+            <Input
+              placeholder="e.g. Your auto insurance renewal is coming up"
+              value={data.emailSubject}
+              onChange={e => set('emailSubject', e.target.value)}
+            />
+          </FieldWrap>
+          <FieldWrap>
+            <Label required>From Email Address</Label>
+            <Input
+              type="email"
+              placeholder="e.g. campaigns@yourcompany.com"
+              value={data.emailFromAddress}
+              onChange={e => set('emailFromAddress', e.target.value)}
+            />
+          </FieldWrap>
+          <FieldWrap>
+            <Label required>Email Body (HTML)</Label>
+            <textarea
+              rows={6}
+              placeholder="<h1>Hello!</h1><p>Your policy renewal is coming up...</p>"
+              value={data.emailBody}
+              onChange={e => set('emailBody', e.target.value)}
+              className="flex w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono"
+            />
+          </FieldWrap>
+          {data.emailBody && (
+            <FieldWrap>
+              <Label>Preview</Label>
+              <div
+                className="rounded-md border border-white/10 bg-white p-4 text-sm text-black max-h-40 overflow-y-auto"
+                dangerouslySetInnerHTML={{ __html: data.emailBody }}
+              />
+            </FieldWrap>
+          )}
+        </div>
+      )}
+
+      {/* SMS-specific fields */}
+      {data.type === 'sms' && (
+        <div className="space-y-4 pt-4 border-t border-white/10">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">SMS Settings</p>
+          <FieldWrap>
+            <Label required>Message Body</Label>
+            <textarea
+              rows={3}
+              maxLength={160}
+              placeholder="Hi {name}, your insurance renewal is due soon. Reply YES to connect with an agent."
+              value={data.smsMessageBody}
+              onChange={e => set('smsMessageBody', e.target.value)}
+              className="flex w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            />
+            <p className={cn(
+              'text-xs text-right',
+              data.smsMessageBody.length > 160 ? 'text-red-400' : 'text-slate-500'
+            )}>
+              {data.smsMessageBody.length}/160 characters
+            </p>
+          </FieldWrap>
+          <FieldWrap>
+            <Label>From Number <span className="text-slate-500 font-normal">(leave blank to use default)</span></Label>
+            <Input
+              type="tel"
+              placeholder="e.g. +15551234567"
+              value={data.smsFromNumber}
+              onChange={e => set('smsFromNumber', e.target.value)}
+            />
+          </FieldWrap>
+        </div>
+      )}
     </div>
   )
 }
@@ -386,12 +477,14 @@ function StepSchedule({ data, set }: { data: CampaignFormData; set: (k: keyof Ca
 
 function StepReview({ data, agents }: { data: CampaignFormData; agents: AgentOption[] }) {
   const agent = agents.find(a => a.id === data.agentId)
+  const isCallType = data.type !== 'email' && data.type !== 'sms'
+
   return (
     <div className="space-y-4">
       <div className="glass-card p-4 space-y-0">
         <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Basic Info</p>
         <ReviewRow label="Name" value={data.name} />
-        <ReviewRow label="Type" value={<span className="capitalize">{data.type}</span>} />
+        <ReviewRow label="Type" value={<span className="uppercase">{data.type}</span>} />
         <ReviewRow label="Description" value={data.description} />
         <ReviewRow label="Dates" value={data.startDate && data.endDate ? `${data.startDate} → ${data.endDate}` : null} />
       </div>
@@ -403,18 +496,42 @@ function StepReview({ data, agents }: { data: CampaignFormData; agents: AgentOpt
         <ReviewRow label="Exclude Existing" value={data.excludeExisting ? 'Yes' : 'No'} />
       </div>
 
-      <div className="glass-card p-4 space-y-0">
-        <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Agent & Script</p>
-        <ReviewRow label="Agent" value={agent?.name} />
-        <ReviewRow label="Max Attempts" value={`${data.maxAttempts}`} />
-        <ReviewRow label="Custom Greeting" value={data.customGreeting || 'Default'} />
-      </div>
+      {data.type === 'email' && (
+        <div className="glass-card p-4 space-y-0">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Email Configuration</p>
+          <ReviewRow label="Subject" value={data.emailSubject} />
+          <ReviewRow label="From" value={data.emailFromAddress} />
+          <ReviewRow label="Body" value={data.emailBody ? `${data.emailBody.slice(0, 80)}...` : null} />
+        </div>
+      )}
+
+      {data.type === 'sms' && (
+        <div className="glass-card p-4 space-y-0">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">SMS Configuration</p>
+          <ReviewRow label="Message" value={data.smsMessageBody} />
+          <ReviewRow label="From Number" value={data.smsFromNumber || 'Default'} />
+          <ReviewRow label="Characters" value={`${data.smsMessageBody.length}/160`} />
+        </div>
+      )}
+
+      {isCallType && (
+        <div className="glass-card p-4 space-y-0">
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Agent & Script</p>
+          <ReviewRow label="Agent" value={agent?.name} />
+          <ReviewRow label="Max Attempts" value={`${data.maxAttempts}`} />
+          <ReviewRow label="Custom Greeting" value={data.customGreeting || 'Default'} />
+        </div>
+      )}
 
       <div className="glass-card p-4 space-y-0">
         <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3">Schedule</p>
-        <ReviewRow label="Call Hours" value={`${data.callHoursStart} – ${data.callHoursEnd}`} />
-        <ReviewRow label="Active Days" value={data.callDays.join(', ')} />
-        <ReviewRow label="Limits" value={`${data.maxCallsPerHour}/hr · ${data.maxCallsPerDay}/day`} />
+        {isCallType && (
+          <>
+            <ReviewRow label="Call Hours" value={`${data.callHoursStart} – ${data.callHoursEnd}`} />
+            <ReviewRow label="Active Days" value={data.callDays.join(', ')} />
+            <ReviewRow label="Limits" value={`${data.maxCallsPerHour}/hr · ${data.maxCallsPerDay}/day`} />
+          </>
+        )}
         <ReviewRow label="Timezone" value={data.timezone} />
       </div>
     </div>
@@ -443,11 +560,42 @@ export function CampaignWizard({ isOpen, onClose, onLaunch, onSaveDraft }: Campa
     setData(prev => ({ ...prev, [key]: value }))
   }
 
+  const isCallType = data.type !== 'email' && data.type !== 'sms'
+
   const canProceed = () => {
-    if (step === 1) return data.name.trim().length > 0
+    if (step === 1) {
+      if (data.name.trim().length === 0) return false
+      if (data.type === 'email') {
+        return data.emailSubject.trim().length > 0 && data.emailFromAddress.trim().length > 0 && data.emailBody.trim().length > 0
+      }
+      if (data.type === 'sms') {
+        return data.smsMessageBody.trim().length > 0 && data.smsMessageBody.length <= 160
+      }
+      return true
+    }
     if (step === 2) return data.audienceSegments.length > 0
-    if (step === 3) return data.agentId !== ''
+    if (step === 3) return isCallType ? data.agentId !== '' : true
     return true
+  }
+
+  const handleLaunch = () => {
+    if (data.type === 'email') {
+      if (!data.emailSubject || !data.emailFromAddress || !data.emailBody) {
+        toast.error('Please fill in all email fields before launching.')
+        return
+      }
+    }
+    if (data.type === 'sms') {
+      if (!data.smsMessageBody) {
+        toast.error('Please enter an SMS message body before launching.')
+        return
+      }
+      if (data.smsMessageBody.length > 160) {
+        toast.error('SMS message body must be 160 characters or fewer.')
+        return
+      }
+    }
+    onLaunch(data)
   }
 
   const handleClose = () => {
@@ -512,7 +660,17 @@ export function CampaignWizard({ isOpen, onClose, onLaunch, onSaveDraft }: Campa
         <div className="px-6 py-5 overflow-y-auto max-h-[52vh]">
           {step === 1 && <StepBasicInfo {...stepProps} />}
           {step === 2 && <StepAudience {...stepProps} />}
-          {step === 3 && <StepAgentScript {...stepProps} agents={agents} />}
+          {step === 3 && isCallType && <StepAgentScript {...stepProps} agents={agents} />}
+          {step === 3 && !isCallType && (
+            <div className="space-y-4">
+              <div className="glass-card p-6 text-center">
+                <p className="text-sm text-slate-400">
+                  {data.type === 'email' ? 'Email' : 'SMS'} campaigns do not require a voice agent.
+                  Your message configuration was set in Step 1.
+                </p>
+              </div>
+            </div>
+          )}
           {step === 4 && <StepSchedule {...stepProps} />}
           {step === 5 && <StepReview data={data} agents={agents} />}
         </div>
@@ -549,7 +707,7 @@ export function CampaignWizard({ isOpen, onClose, onLaunch, onSaveDraft }: Campa
             ) : (
               <Button
                 size="sm"
-                onClick={() => onLaunch(data)}
+                onClick={handleLaunch}
                 className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold px-5"
               >
                 Launch Campaign

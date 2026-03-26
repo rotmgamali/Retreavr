@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { SkeletonToContent } from '@/components/animations'
 import { LeadsSkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
-import { useLeads, useCreateLead, useUpdateLead, useDeleteLead } from '@/hooks/use-leads'
+import { useLeads, useCreateLead, useUpdateLead, useDeleteLead, useLeadInteractions, useCreateInteraction } from '@/hooks/use-leads'
 import type { LeadApi } from '@/hooks/use-leads'
 import { useAgents } from '@/hooks/use-agents'
-import { GripVertical, Phone, Mail, Calendar, MoreHorizontal, Plus, Search, Filter, DollarSign, User, Clock } from 'lucide-react'
+import { GripVertical, Phone, Mail, Calendar, MoreHorizontal, Plus, Search, Filter, DollarSign, User, Clock, MessageSquare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { toast } from 'sonner'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -208,6 +214,93 @@ function AddLeadDialog({
 
 // ── Lead Detail Dialog ────────────────────────────────────────────────────────
 
+const INTERACTION_ICONS: Record<string, React.ElementType> = {
+  call: Phone,
+  email: Mail,
+  note: MessageSquare,
+  meeting: Calendar,
+  sms: MessageSquare,
+}
+
+function InteractionTimeline({ leadId }: { leadId: string }) {
+  const { data: interactionsData, isLoading } = useLeadInteractions(leadId)
+  const createInteraction = useCreateInteraction()
+  const [showForm, setShowForm] = useState(false)
+  const [interactionType, setInteractionType] = useState('note')
+  const [interactionNotes, setInteractionNotes] = useState('')
+
+  const interactions = interactionsData?.items ?? []
+
+  const handleSubmit = async () => {
+    if (!interactionNotes.trim()) return
+    try {
+      await createInteraction.mutateAsync({ leadId, data: { interaction_type: interactionType, notes: interactionNotes } })
+      setInteractionNotes('')
+      setInteractionType('note')
+      setShowForm(false)
+      toast.success('Interaction logged')
+    } catch {
+      toast.error('Failed to log interaction')
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="block text-xs text-slate-500">Activity</label>
+        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => setShowForm(v => !v)}>
+          {showForm ? 'Cancel' : '+ Log Interaction'}
+        </Button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-lg border border-white/10 bg-white/5 p-3 mb-3 space-y-2">
+          <Select value={interactionType} onValueChange={setInteractionType}>
+            <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {['call', 'email', 'note', 'meeting', 'sms'].map(t => (
+                <SelectItem key={t} value={t} className="text-xs capitalize">{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Textarea placeholder="Notes..." value={interactionNotes} onChange={e => setInteractionNotes(e.target.value)} rows={2} className="text-xs" />
+          <Button size="sm" className="h-6 text-[10px] bg-blue-600 hover:bg-blue-500 text-white" onClick={handleSubmit} disabled={createInteraction.isPending}>
+            Submit
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-xs text-slate-500 py-2">Loading activity...</p>
+      ) : interactions.length === 0 ? (
+        <p className="text-xs text-slate-600 italic py-2">No interactions yet</p>
+      ) : (
+        <div className="space-y-0 max-h-[180px] overflow-y-auto">
+          {interactions.map((interaction, idx) => {
+            const Icon = INTERACTION_ICONS[interaction.interaction_type] ?? MessageSquare
+            return (
+              <div key={interaction.id} className="flex gap-3 relative">
+                <div className="flex flex-col items-center">
+                  <div className="h-6 w-6 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                    <Icon className="h-3 w-3 text-slate-400" />
+                  </div>
+                  {idx < interactions.length - 1 && <div className="w-px flex-1 bg-white/10 my-0.5" />}
+                </div>
+                <div className="pb-3 min-w-0">
+                  <p className="text-xs text-slate-300">{interaction.notes}</p>
+                  <p className="text-[10px] text-slate-600 mt-0.5">
+                    <span className="capitalize">{interaction.interaction_type}</span> &middot; {new Date(interaction.created_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LeadDetailDialog({
   lead,
   onClose,
@@ -236,7 +329,7 @@ function LeadDetailDialog({
 
   return (
     <Dialog open={!!lead} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg bg-[#0f172a] border-white/10">
+      <DialogContent className="max-w-lg bg-[#0f172a] border-white/10 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -320,6 +413,9 @@ function LeadDetailDialog({
               </p>
             )}
           </div>
+
+          {/* Activity / Interaction History */}
+          <InteractionTimeline leadId={lead.id} />
 
           {/* Actions */}
           <div className="flex items-center justify-between pt-1">
@@ -415,14 +511,22 @@ export default function LeadPipelinePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [filterInsuranceType, setFilterInsuranceType] = useState<string>('all')
+  const [filterStage, setFilterStage] = useState<string>('all')
 
-  const filteredLeads = searchQuery
-    ? leads.filter(l =>
-        l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        l.insuranceType.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        l.assignedAgent.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : leads
+  const filteredLeads = leads.filter(l => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      if (
+        !l.name.toLowerCase().includes(q) &&
+        !l.insuranceType.toLowerCase().includes(q) &&
+        !l.assignedAgent.toLowerCase().includes(q)
+      ) return false
+    }
+    if (filterInsuranceType !== 'all' && !l.insuranceType.toLowerCase().includes(filterInsuranceType.toLowerCase())) return false
+    if (filterStage !== 'all' && l.stage !== filterStage) return false
+    return true
+  })
 
   const handleDragStart = (e: React.DragEvent, lead: Lead) => {
     e.dataTransfer.setData('text/plain', lead.id)
@@ -528,10 +632,48 @@ export default function LeadPipelinePage() {
             className="pl-9"
           />
         </div>
-        <Button variant="outline" size="sm" className="gap-2">
-          <Filter className="h-3.5 w-3.5" />
-          Filter
-        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Filter className="h-3.5 w-3.5" />
+              Filter
+              {(filterInsuranceType !== 'all' || filterStage !== 'all') && (
+                <span className="ml-1 h-4 w-4 rounded-full bg-blue-500 text-[10px] text-white flex items-center justify-center">!</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 space-y-3">
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">Insurance Type</label>
+              <Select value={filterInsuranceType} onValueChange={setFilterInsuranceType}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {['auto', 'home', 'life', 'health', 'commercial', 'renters', 'umbrella'].map(t => (
+                    <SelectItem key={t} value={t} className="capitalize text-xs">{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">Stage</label>
+              <Select value={filterStage} onValueChange={setFilterStage}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Stages</SelectItem>
+                  {COLUMNS.map(c => (
+                    <SelectItem key={c.key} value={c.key} className="text-xs">{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(filterInsuranceType !== 'all' || filterStage !== 'all') && (
+              <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => { setFilterInsuranceType('all'); setFilterStage('all') }}>
+                Clear Filters
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Kanban board */}

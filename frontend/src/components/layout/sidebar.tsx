@@ -19,16 +19,22 @@ import {
   ChevronLeft,
   Shield,
   X,
+  Calculator,
+  BookOpen,
+  Headphones,
 } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Voice Agents", href: "/voice-agents", icon: Bot },
   { label: "Lead Pipeline", href: "/leads", icon: Users },
+  { label: "Quotes", href: "/quotes", icon: Calculator },
   { label: "Call Center", href: "/call-center", icon: Phone },
+  { label: "Supervision", href: "/supervision", icon: Headphones },
   { label: "Campaigns", href: "/campaigns", icon: Megaphone },
   { label: "Call History", href: "/call-history", icon: History },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
+  { label: "Knowledge Base", href: "/knowledge", icon: BookOpen },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 

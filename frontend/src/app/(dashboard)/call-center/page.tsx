@@ -20,6 +20,8 @@ import { useDashboardKPIs } from '@/hooks/use-analytics'
 import { useCurrentUser } from '@/hooks/use-current-user'
 import { useCallMonitor, type MonitorMode } from '@/hooks/use-call-monitor'
 import type { Call } from '@/lib/api-types'
+import { api } from '@/lib/api-client'
+import { toast } from 'sonner'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -381,7 +383,18 @@ export default function CallCenterPage() {
                 <CallSummaryPanel
                   summary={voiceCall.callSummary}
                   onClose={() => voiceCall.resetCall()}
-                  onSaveNotes={() => {}}
+                  onSaveNotes={(notes) => {
+                    const leadId = voiceCall.callSummary?.callId
+                    if (leadId) {
+                      api.post(`/leads/${leadId}/interactions`, {
+                        interaction_type: 'note',
+                        notes: notes,
+                      }).then(() => toast.success('Notes saved'))
+                        .catch(() => toast.error('Failed to save notes'))
+                    } else {
+                      toast.error('No call ID available to save notes')
+                    }
+                  }}
                 />
               </motion.div>
             )}
@@ -459,7 +472,15 @@ export default function CallCenterPage() {
                         <Clock className="h-3 w-3" />
                         Waiting {formatDuration(item.waitTime)}
                       </span>
-                      <Button size="sm" className="h-6 px-2 text-[10px] bg-green-600 hover:bg-green-500">
+                      <Button size="sm" className="h-6 px-2 text-[10px] bg-green-600 hover:bg-green-500" onClick={() => {
+                        const defaultAgent = agentOptions[0]
+                        if (!defaultAgent) {
+                          toast.error('No agents available to take the call')
+                          return
+                        }
+                        voiceCall.startCall(item.callerPhone, defaultAgent.id, { direction: 'inbound' })
+                        toast.success(`Picking up call from ${item.callerName}`)
+                      }}>
                         <Phone className="h-3 w-3 mr-1" />
                         Pick Up
                       </Button>

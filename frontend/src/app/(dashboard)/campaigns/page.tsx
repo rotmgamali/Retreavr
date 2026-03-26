@@ -4,13 +4,13 @@ import { useState } from 'react'
 import { SkeletonToContent } from '@/components/animations'
 import { CampaignsSkeleton } from '@/components/ui/page-skeletons'
 import { usePageLoading } from '@/hooks/use-page-loading'
-import { Plus, TrendingUp, Users, Phone, BarChart2 } from 'lucide-react'
+import { Plus, TrendingUp, Users, Phone, BarChart2, Play, Square, Pause } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CampaignWizard, type CampaignFormData } from '@/components/forms/campaign-wizard'
-import { useCampaigns, useCreateCampaign } from '@/hooks/use-campaigns'
+import { useCampaigns, useCreateCampaign, useStartCampaign, useStopCampaign } from '@/hooks/use-campaigns'
 import type { CampaignApi } from '@/hooks/use-campaigns'
 
 // ─── Types & mappers ──────────────────────────────────────────────────────────
@@ -199,8 +199,13 @@ export default function CampaignsPage() {
   const [wizardOpen, setWizardOpen] = useState(false)
   const [analyticsCampaign, setAnalyticsCampaign] = useState<Campaign | null>(null)
 
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(null), 3000) }
+
   const { data: campaignsData } = useCampaigns()
   const createCampaign = useCreateCampaign()
+  const startCampaign = useStartCampaign()
+  const stopCampaign = useStopCampaign()
 
   const campaigns: Campaign[] = (campaignsData?.items ?? []).map(apiToUiCampaign)
 
@@ -309,7 +314,7 @@ export default function CampaignsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-white/10">
-                  {['Campaign', 'Type', 'Status', 'Dates', 'Leads', 'Contacted', 'Converted', 'Conv. Rate'].map(h => (
+                  {['Campaign', 'Type', 'Status', 'Dates', 'Leads', 'Contacted', 'Converted', 'Conv. Rate', 'Actions'].map(h => (
                     <th
                       key={h}
                       className="px-5 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap"
@@ -359,6 +364,58 @@ export default function CampaignsPage() {
                         {conversionRate(campaign)}
                       </span>
                     </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                          disabled={campaign.status === 'active' || startCampaign.isPending}
+                          onClick={() => {
+                            startCampaign.mutate(campaign.id, {
+                              onSuccess: () => showToast(`Campaign "${campaign.name}" started`),
+                              onError: () => showToast(`Failed to start "${campaign.name}"`),
+                            })
+                          }}
+                          title="Start campaign"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10"
+                          disabled={campaign.status !== 'active'}
+                          onClick={() => {
+                            stopCampaign.mutate(campaign.id, {
+                              onSuccess: () => showToast(`Campaign "${campaign.name}" paused`),
+                              onError: () => showToast(`Failed to pause "${campaign.name}"`),
+                            })
+                          }}
+                          title="Pause campaign"
+                        >
+                          <Pause className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          disabled={campaign.status !== 'active' && campaign.status !== 'paused'}
+                          onClick={() => {
+                            stopCampaign.mutate(campaign.id, {
+                              onSuccess: () => showToast(`Campaign "${campaign.name}" stopped`),
+                              onError: () => showToast(`Failed to stop "${campaign.name}"`),
+                            })
+                          }}
+                          title="Stop campaign"
+                        >
+                          <Square className="w-3.5 h-3.5" />
+                        </Button>
+                        {campaign.status === 'active' && (
+                          <Badge variant="success" className="ml-1 text-[10px] animate-pulse">Running</Badge>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -374,6 +431,14 @@ export default function CampaignsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Toast */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400 shadow-lg backdrop-blur-sm">
+          <span>{toastMsg}</span>
+          <button onClick={() => setToastMsg(null)} className="ml-auto text-green-400/60 hover:text-green-400">x</button>
+        </div>
+      )}
 
       {/* Analytics Dialog */}
       <CampaignAnalyticsDialog

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type PaginatedResponse } from '@/lib/api-client'
-import type { Lead as ApiLead } from '@/lib/api-types'
+import type { Lead as ApiLead, LeadInteraction } from '@/lib/api-types'
 
 export type { ApiLead as LeadApi }
 
@@ -66,5 +66,22 @@ export function useDeleteLead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] })
     },
+  })
+}
+
+export function useLeadInteractions(leadId: string | null) {
+  return useQuery({
+    queryKey: ['leads', leadId, 'interactions'],
+    queryFn: () => api.get<PaginatedResponse<LeadInteraction>>(`/leads/${leadId}/interactions`),
+    enabled: !!leadId,
+  })
+}
+
+export function useCreateInteraction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ leadId, data }: { leadId: string; data: { interaction_type: string; notes: string } }) =>
+      api.post<LeadInteraction>(`/leads/${leadId}/interactions`, data),
+    onSuccess: (_, vars) => queryClient.invalidateQueries({ queryKey: ['leads', vars.leadId, 'interactions'] }),
   })
 }

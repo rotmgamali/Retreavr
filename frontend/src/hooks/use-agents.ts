@@ -66,3 +66,21 @@ export function useDeleteAgent() {
     },
   })
 }
+
+export function useLinkKnowledge() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ agentId, documentId }: { agentId: string; documentId: string }) =>
+      api.post(`/voice-agents/${agentId}/knowledge/${documentId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  })
+}
+
+export function useUnlinkKnowledge() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ agentId, documentId }: { agentId: string; documentId: string }) =>
+      api.delete(`/voice-agents/${agentId}/knowledge/${documentId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  })
+}

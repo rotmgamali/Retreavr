@@ -2,7 +2,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from app.models.campaigns import Campaign, CampaignStatus
 from app.models.user import User
 from app.schemas.campaigns import CampaignCreate, CampaignResponse, CampaignUpdate
 from app.schemas.common import PaginatedResponse
+from app.services.audit import log_audit_event
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -46,14 +47,24 @@ async def get_campaign(
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     body: CampaignCreate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     data = body.model_dump()
     data["organization_id"] = org_id
     campaign = Campaign(**data)
     db.add(campaign)
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="campaign.created",
+        resource_type="campaign",
+        resource_id=str(campaign.id),
+        details={"name": campaign.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
     await db.refresh(campaign)
     return campaign
@@ -100,10 +111,11 @@ async def delete_campaign(
 @router.post("/{campaign_id}/start", status_code=status.HTTP_202_ACCEPTED)
 async def start_campaign(
     campaign_id: uuid.UUID,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     """Start the autodialer for a campaign. Processes leads in the background."""
     from app.services.campaign_worker import is_campaign_running, start_campaign as run_campaign
@@ -118,6 +130,14 @@ async def start_campaign(
     # Mark active
     campaign.status = CampaignStatus.active
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="campaign.started",
+        resource_type="campaign",
+        resource_id=str(campaign_id),
+        details={"name": campaign.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
     # Launch in background
@@ -129,9 +149,10 @@ async def start_campaign(
 @router.post("/{campaign_id}/stop", status_code=status.HTTP_200_OK)
 async def stop_campaign_endpoint(
     campaign_id: uuid.UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     org_id: Annotated[uuid.UUID, Depends(get_current_org)],
-    _: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
+    current_user: Annotated[User, Depends(require_role(["admin", "superadmin"]))],
 ):
     """Stop a running campaign autodialer."""
     from app.services.campaign_worker import stop_campaign
@@ -146,6 +167,14 @@ async def stop_campaign_endpoint(
 
     campaign.status = CampaignStatus.paused
     await db.flush()
+    await log_audit_event(
+        db, org_id, current_user.id,
+        action="campaign.stopped",
+        resource_type="campaign",
+        resource_id=str(campaign_id),
+        details={"name": campaign.name},
+        ip_address=request.client.host if request.client else None,
+    )
     await db.commit()
 
     return {"status": "stopped", "campaign_id": str(campaign_id)}

@@ -20,14 +20,18 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
-from app.models.campaigns import Campaign, CampaignLead, CampaignStatus
+from app.models.campaigns import Campaign, CampaignLead, CampaignStatus, CampaignType
 from app.models.leads import Lead
 from app.models.voice_agents import VoiceAgent
+from app.models.system import Integration
 from app.services.telephony.outbound import (
     DNCViolationError,
     RateLimitExceededError,
     initiate_call,
+    is_on_dnc_list,
 )
+from app.services.email.sendgrid import send_email
+from app.services.telephony.sms import send_sms
 from app.services.realtime.event_bus import Event, EventType, event_bus
 
 logger = logging.getLogger(__name__)
@@ -53,7 +57,13 @@ async def start_campaign(campaign_id: uuid.UUID) -> None:
 
     try:
         async with async_session_factory() as db:
-            campaign = await db.get(Campaign, campaign_id)
+            # Use SELECT FOR UPDATE to prevent two concurrent starts
+            result = await db.execute(
+                select(Campaign)
+                .where(Campaign.id == campaign_id)
+                .with_for_update()
+            )
+            campaign = result.scalar_one_or_none()
             if not campaign:
                 logger.error("Campaign %s not found", campaign_id)
                 return
@@ -62,14 +72,9 @@ async def start_campaign(campaign_id: uuid.UUID) -> None:
                 logger.info("Campaign %s is not active (status=%s), skipping", campaign_id, campaign.status)
                 return
 
-            # Resolve the voice agent for this campaign
-            agent = await _resolve_agent(db, campaign)
-            if not agent:
-                logger.error("No active voice agent found for campaign %s", campaign_id)
-                return
-
-            # Fetch the org's from number
-            from_number = await _resolve_from_number(db, campaign)
+            # Mark as running under the lock so no other worker picks it up
+            campaign.status = CampaignStatus.active
+            await db.flush()
 
             # Get pending leads for this campaign
             leads = await _get_pending_leads(db, campaign_id)
@@ -79,8 +84,8 @@ async def start_campaign(campaign_id: uuid.UUID) -> None:
                 return
 
             logger.info(
-                "Starting campaign %s: %d leads, agent=%s",
-                campaign_id, len(leads), agent.id,
+                "Starting campaign %s (%s): %d leads",
+                campaign_id, campaign.type, len(leads),
             )
 
             await event_bus.publish(Event(
@@ -89,26 +94,42 @@ async def start_campaign(campaign_id: uuid.UUID) -> None:
                 payload={"campaign_id": str(campaign_id), "action": "started", "total_leads": len(leads)},
             ))
 
-            # Process leads with concurrency control
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
             completed = 0
             failed = 0
 
-            for campaign_lead, lead in leads:
-                if stop_event.is_set():
-                    logger.info("Campaign %s stop requested", campaign_id)
-                    break
+            if campaign.type == CampaignType.email:
+                completed, failed = await _run_email_campaign(
+                    db, campaign, leads, stop_event,
+                )
+            elif campaign.type == CampaignType.sms:
+                completed, failed = await _run_sms_campaign(
+                    db, campaign, leads, stop_event,
+                )
+            else:
+                # Default: outbound_call (original behaviour)
+                agent = await _resolve_agent(db, campaign)
+                if not agent:
+                    logger.error("No active voice agent found for campaign %s", campaign_id)
+                    return
 
-                async with semaphore:
-                    success = await _dial_lead(
-                        db, campaign, lead, campaign_lead, agent, from_number, stop_event,
-                    )
-                    if success:
-                        completed += 1
-                    else:
-                        failed += 1
+                from_number = await _resolve_from_number(db, campaign)
 
-                await asyncio.sleep(INTER_CALL_DELAY)
+                semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
+                for campaign_lead, lead in leads:
+                    if stop_event.is_set():
+                        logger.info("Campaign %s stop requested", campaign_id)
+                        break
+
+                    async with semaphore:
+                        success = await _dial_lead(
+                            db, campaign, lead, campaign_lead, agent, from_number, stop_event,
+                        )
+                        if success:
+                            completed += 1
+                        else:
+                            failed += 1
+
+                    await asyncio.sleep(INTER_CALL_DELAY)
 
             # Mark campaign complete
             await _mark_campaign_completed(db, campaign_id)
@@ -137,6 +158,21 @@ async def stop_campaign(campaign_id: uuid.UUID) -> bool:
     event = _running_campaigns.get(campaign_id)
     if event:
         event.set()
+
+        # Update DB status under lock
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Campaign)
+                .where(Campaign.id == campaign_id)
+                .with_for_update()
+            )
+            campaign = result.scalar_one_or_none()
+            if campaign and campaign.status == CampaignStatus.active:
+                campaign.status = CampaignStatus.paused
+                campaign.updated_at = datetime.now(timezone.utc)
+                await db.flush()
+                await db.commit()
+
         return True
     return False
 
@@ -248,6 +284,138 @@ async def _dial_lead(
         logger.error("Failed to call lead %s: %s", lead.id, exc)
         await _update_lead_status(db, campaign_lead.id, "failed")
         return False
+
+
+async def _get_sendgrid_credentials(db: AsyncSession, org_id: uuid.UUID) -> dict:
+    """Fetch SendGrid API key from the org's integrations table."""
+    result = await db.execute(
+        select(Integration)
+        .where(
+            Integration.organization_id == org_id,
+            Integration.provider == "sendgrid",
+            Integration.is_active == True,  # noqa: E712
+        )
+        .limit(1)
+    )
+    integration = result.scalar_one_or_none()
+    if not integration or not integration.credentials:
+        raise RuntimeError(f"No active SendGrid integration for org {org_id}")
+    api_key = integration.credentials.get("api_key")
+    if not api_key:
+        raise RuntimeError(f"SendGrid integration for org {org_id} has no api_key")
+    return {"api_key": api_key}
+
+
+async def _run_email_campaign(
+    db: AsyncSession,
+    campaign: Campaign,
+    leads: list[tuple[CampaignLead, Lead]],
+    stop_event: asyncio.Event,
+) -> tuple[int, int]:
+    """Send emails to all leads in the campaign. Returns (completed, failed)."""
+    config = campaign.config or {}
+    subject = config.get("subject", "")
+    html_body = config.get("html_body", "")
+    from_email = config.get("from_email", "")
+
+    if not subject or not html_body or not from_email:
+        logger.error("Campaign %s missing email config (subject/html_body/from_email)", campaign.id)
+        return 0, len(leads)
+
+    try:
+        sg_creds = await _get_sendgrid_credentials(db, campaign.organization_id)
+    except RuntimeError as exc:
+        logger.error("Campaign %s: %s", campaign.id, exc)
+        return 0, len(leads)
+
+    completed = 0
+    failed = 0
+
+    for campaign_lead, lead in leads:
+        if stop_event.is_set():
+            logger.info("Campaign %s stop requested", campaign.id)
+            break
+
+        if not lead.email:
+            await _update_lead_status(db, campaign_lead.id, "skipped")
+            failed += 1
+            continue
+
+        try:
+            await send_email(
+                to_email=lead.email,
+                subject=subject,
+                html_body=html_body,
+                from_email=from_email,
+                api_key=sg_creds["api_key"],
+            )
+            await _update_lead_status(db, campaign_lead.id, "sent")
+            completed += 1
+        except Exception as exc:
+            logger.error("Failed to email lead %s: %s", lead.id, exc)
+            await _update_lead_status(db, campaign_lead.id, "failed")
+            failed += 1
+
+    return completed, failed
+
+
+async def _run_sms_campaign(
+    db: AsyncSession,
+    campaign: Campaign,
+    leads: list[tuple[CampaignLead, Lead]],
+    stop_event: asyncio.Event,
+) -> tuple[int, int]:
+    """Send SMS messages to all leads in the campaign. Returns (completed, failed)."""
+    from twilio.rest import Client as TwilioClient
+    from app.core.config import get_settings
+
+    config = campaign.config or {}
+    message_body = config.get("message_body", "")
+    if not message_body:
+        logger.error("Campaign %s missing sms config (message_body)", campaign.id)
+        return 0, len(leads)
+
+    settings = get_settings()
+    twilio_client = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
+
+    # Determine from number: campaign config > org setting > global default
+    from_number = config.get("from_number") or await _resolve_from_number(db, campaign)
+
+    completed = 0
+    failed = 0
+
+    for campaign_lead, lead in leads:
+        if stop_event.is_set():
+            logger.info("Campaign %s stop requested", campaign.id)
+            break
+
+        if not lead.phone:
+            await _update_lead_status(db, campaign_lead.id, "skipped")
+            failed += 1
+            continue
+
+        # Check DNC list before sending
+        if await is_on_dnc_list(db, campaign.organization_id, lead.phone):
+            logger.info("Lead %s on DNC list, skipping SMS", lead.id)
+            await _update_lead_status(db, campaign_lead.id, "dnc_blocked")
+            failed += 1
+            continue
+
+        try:
+            await send_sms(
+                to_number=lead.phone,
+                from_number=from_number,
+                body=message_body,
+                twilio_client=twilio_client,
+            )
+            await _update_lead_status(db, campaign_lead.id, "sent")
+            completed += 1
+        except Exception as exc:
+            logger.error("Failed to SMS lead %s: %s", lead.id, exc)
+            await _update_lead_status(db, campaign_lead.id, "failed")
+            failed += 1
+
+    return completed, failed
 
 
 async def _update_lead_status(db: AsyncSession, campaign_lead_id: uuid.UUID, new_status: str) -> None:
