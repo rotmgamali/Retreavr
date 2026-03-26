@@ -215,18 +215,6 @@ export default function OnboardingPage() {
     })
   }
 
-  async function saveStep() {
-    setSaving(true)
-    setError(null)
-    try {
-      await api.post('/onboarding', data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save progress')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   async function goNext() {
     if (step < 4) {
       setSaving(true)
