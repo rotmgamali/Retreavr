@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
 
-import sentry_sdk
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None  # type: ignore[assignment]
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,7 +15,7 @@ from app.api.routes.auth import router as auth_router
 settings = get_settings()
 
 # ── Sentry error tracking ─────────────────────────────────────────────
-if settings.sentry_dsn:
+if settings.sentry_dsn and sentry_sdk is not None:
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         traces_sample_rate=0.2,

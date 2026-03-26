@@ -122,7 +122,19 @@ jobs:
           service: retrevr-backend
           region: us-central1
           image: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
-          flags: --allow-unauthenticated --session-affinity
+          flags: --allow-unauthenticated --session-affinity --min-instances=0 --max-instances=10 --memory=1Gi --timeout=300
+          env_vars: |
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            SECRET_KEY=SECRET_KEY:latest
+            OPENAI_API_KEY=OPENAI_API_KEY:latest
+            TWILIO_ACCOUNT_SID=TWILIO_ACCOUNT_SID:latest
+            TWILIO_AUTH_TOKEN=TWILIO_AUTH_TOKEN:latest
+            TWILIO_PHONE_NUMBER=TWILIO_PHONE_NUMBER:latest
+            TWILIO_WEBHOOK_BASE_URL=TWILIO_WEBHOOK_BASE_URL:latest
+            REDIS_URL=REDIS_URL:latest
+            SENTRY_DSN=SENTRY_DSN:latest
 
       - name: Deploy frontend to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
@@ -130,4 +142,6 @@ jobs:
           service: retrevr-frontend
           region: us-central1
           image: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
-          flags: --allow-unauthenticated
+          flags: --allow-unauthenticated --min-instances=0 --max-instances=5 --memory=512Mi
+          env_vars: |
+            BACKEND_URL=https://retrevr-backend-${{ secrets.GCP_PROJECT_HASH }}-uc.a.run.app

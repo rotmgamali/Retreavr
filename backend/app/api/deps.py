@@ -100,9 +100,12 @@ async def get_current_org_ws(
         raise HTTPException(status_code=401)
 
     user = await get_user_by_id(db, uuid.UUID(user_id))
-    if not user:
+    if not user or not user.is_active:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         raise HTTPException(status_code=401)
+
+    return user.organization_id
+
 
 async def get_current_org(
     current_user: Annotated[User, Depends(get_current_active_user)],

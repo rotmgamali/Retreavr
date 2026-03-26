@@ -39,6 +39,8 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
+# Cloud Run injects PORT env var; default to 8000 for local dev
+ENV PORT=8000
+
 # Command to run the application
-# We use uvicorn with workers for scale
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers"]
